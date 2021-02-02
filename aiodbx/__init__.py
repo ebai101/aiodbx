@@ -228,7 +228,7 @@ class AsyncDropboxAPI:
             self.upload_session.append(commit)
             return commit
 
-    async def upload_finish(self) -> list[dict]:
+    async def upload_finish(self, check_interval: float = 5) -> list[dict]:
         # finishes an upload batch
         # returns a list of FileMetadata dicts
 
@@ -252,7 +252,8 @@ class AsyncDropboxAPI:
 
         if resp_data['.tag'] == 'async_job_id':
             # check regularly for job completion
-            return await self._upload_finish_check(resp_data['async_job_id'])
+            return await self._upload_finish_check(
+                resp_data['async_job_id'], check_interval=check_interval)
         elif resp_data['.tag'] == 'complete':
             self.log.info('Upload batch finished')
             return resp_data['entries']
