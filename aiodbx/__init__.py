@@ -5,7 +5,6 @@ import aiohttp
 import asyncio
 import aiofiles
 import aiologger
-from aiologger.formatters.base import Formatter
 
 
 class DropboxApiError(Exception):
@@ -114,7 +113,7 @@ class AsyncDropboxAPI:
         if not log:
             self.log = aiologger.Logger.with_default_handlers(
                 name='aiodbx',
-                formatter=Formatter(
+                formatter=aiologger.formatters.base.Formatter(
                     fmt=
                     '[%(asctime)s] [%(levelname)8s] --- %(message)s (%(filename)s:%(lineno)s)'
                 ))
@@ -459,6 +458,6 @@ class AsyncDropboxAPI:
 
     async def shutdown(self):
         # graceful shutdown
-
+        self.log.debug('Shutting down')
         await self.client_session.close()
         await self.log.shutdown()
