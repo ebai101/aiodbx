@@ -139,6 +139,8 @@ class AsyncDropboxAPI:
         # validates the user authentication token by querying a nonce
         # if the API returns the same nonce, the token is valid
         # a DropboxApiError will be raised by the request handler if the token is invalid
+        # https://www.dropbox.com/developers/documentation/http/documentation#check-user
+
         self.log.debug('Validating token...')
 
         nonce = self.generate_nonce()
@@ -166,6 +168,7 @@ class AsyncDropboxAPI:
                                    local_path: str = None) -> str:
         # downloads a file from a shared link
         # returns the path the file was downloaded to
+        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_file
 
         # default to current directory, with the path in the shared link
         if local_path == None:
@@ -189,6 +192,7 @@ class AsyncDropboxAPI:
     async def upload_start(self, local_path: str, dropbox_path: str) -> dict:
         # uploads a single file to an upload session
         # returns an UploadSessionFinishArg dict with information on the upload
+        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-start
 
         if not os.path.exists(local_path):
             raise ValueError(f"local_path {local_path} does not exist")
@@ -231,6 +235,7 @@ class AsyncDropboxAPI:
     async def upload_finish(self, check_interval: float = 5) -> list[dict]:
         # finishes an upload batch
         # returns a list of FileMetadata dicts
+        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch
 
         if len(self.upload_session) == 0:
             raise RuntimeError(
@@ -267,6 +272,8 @@ class AsyncDropboxAPI:
                                    check_interval: float = 5) -> list[dict]:
         # checks on an upload_finish async job every check_interval seconds
         # returns a list of FileMetadata dicts
+        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch-check:w
+
         self.log.debug(
             f'Batch not finished, checking every {check_interval} seconds')
 
@@ -291,6 +298,8 @@ class AsyncDropboxAPI:
 
     async def filename_to_shared_link(self, dropbox_path: str) -> str:
         # create a shared link from a dropbox filename
+        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-create_shared_link_with_settings
+
         self.log.info(
             f'Creating shared link for file {os.path.basename(dropbox_path)}')
         self.log.debug(f'Full path is {dropbox_path}')
@@ -328,6 +337,8 @@ class AsyncDropboxAPI:
 
     async def shared_link_to_filename(self, shared_link: str) -> str:
         # get the dropbox path of a file given its shared link
+        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_metadata
+
         self.log.info(f'Getting filename from shared link {shared_link}')
 
         url = 'https://api.dropboxapi.com/2/sharing/get_shared_link_metadata'
