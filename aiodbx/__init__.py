@@ -303,6 +303,36 @@ class AsyncDropboxAPI:
                     f'Checking again in {check_interval} seconds')
                 continue
 
+    async def upload_single(self,
+                            local_path: str,
+                            dropbox_path: str,
+                            args: dict = None) -> dict:
+        # upload a single file from local_path to dropbox_path
+        # returns the FileMetadata of the uploaded file
+        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload
+
+        if not os.path.exists(local_path):
+            raise ValueError(f"local_path {local_path} does not exist")
+        if not args:
+            args = {'mode': 'add', 'autorename': False, 'mute': False}
+        args['path'] = dropbox_path
+
+        await self.log.info(f'Uploading {os.path.basename(local_path)}')
+        await self.log.debug(f'to {dropbox_path}')
+
+        url = 'https://content.dropboxapi.com/2/files/upload'
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Dropbox-API-Arg": json.dumps(args),
+            "Content-Type": "application/octet-stream"
+        }
+
+        async with aiofiles.open(local_path, 'rb') as f:
+            data = await f.read()
+            resp = await self._request(url, headers=headers, data=data)
+            resp_data = await resp.json()
+            return resp_data
+
     async def filename_to_shared_link(self, dropbox_path: str) -> str:
         # create a shared link from a dropbox filename
         # https://www.dropbox.com/developers/documentation/http/documentation#sharing-create_shared_link_with_settings
