@@ -195,8 +195,8 @@ class AsyncDropboxAPI:
             "Dropbox-API-Arg": json.dumps({"url": shared_link})
         }
 
+        resp = await self._request(url, headers)
         async with aiofiles.open(local_path, 'wb') as f:
-            resp = await self._request(url, headers)
             async for chunk, _ in resp.content.iter_chunks():
                 await f.write(chunk)
             return local_path
