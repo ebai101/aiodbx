@@ -1,12 +1,12 @@
 # aiodbx
 
-rough asynchronous implementation of the Dropbox HTTP API
+rough async Python implementation of the Dropbox HTTP API using aiohttp
 
 
 
 ## example program
 
-this program downloads three files
+this program downloads three files, changes them and uploads the changed files back to Dropbox.
 
 ```python
 import os
