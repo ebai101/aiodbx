@@ -107,7 +107,7 @@ class AsyncDropboxAPI:
         self.retry_statuses = retry_statuses
         self.allowed_retries = allowed_retries
         self.client_session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(limit=50))
+            connector=aiohttp.TCPConnector(limit_per_host=50))
         self.upload_session: list[dict] = []
         self.log = logging.getLogger('aiodbx')
 
