@@ -1,6 +1,5 @@
 import os
 import asyncio
-import aiologger
 
 import aiodbx
 
