@@ -1,6 +1,6 @@
 import os
 import asyncio
-import logging
+import aiologger
 
 import aiodbx
 
@@ -56,13 +56,8 @@ if __name__ == '__main__':
     with open('tokenfile', 'r') as tokenfile:
         dbx = aiodbx.AsyncDropboxAPI(tokenfile.read().rstrip())
 
-    # logging config
-    dbx.log.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('[%(levelname)s] - %(message)s'))
-    dbx.log.addHandler(handler)
-
     # the shared links we want to download from
+    # to actually test this script, change these to valid shared links
     shared_links = [
         'https://www.dropbox.com/s/blahblah/foo?dl=0',
         'https://www.dropbox.com/s/blahblah/bar?dl=0',
