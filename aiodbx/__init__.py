@@ -1,7 +1,6 @@
 import os
 import json
 import typing
-import base64
 import aiohttp
 import asyncio
 import aiofiles
@@ -126,10 +125,6 @@ class AsyncDropboxAPI:
     def __del__(self):
         asyncio.get_event_loop().run_until_complete(self.shutdown())
 
-    @staticmethod
-    def generate_nonce() -> str:
-        return base64.b64encode(os.urandom(8), altchars=b'-_').decode('utf-8')
-
     async def _request(
             self,
             url: str,
@@ -148,24 +143,23 @@ class AsyncDropboxAPI:
             return resp
 
     async def validate(self):
-        # validates the user authentication token by querying a nonce
-        # if the API returns the same nonce, the token is valid
+        # validates the user authentication token by querying a simple string
+        # if the API returns the same string, the token is valid
         # a DropboxApiError will be raised by the request handler if the token is invalid
         # https://www.dropbox.com/developers/documentation/http/documentation#check-user
 
         await self.log.debug('Validating token')
 
-        nonce = self.generate_nonce()
         url = 'https://api.dropboxapi.com/2/check/user'
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-        data = json.dumps({'query': nonce})
+        data = json.dumps({'query': 'aiodbx'})
 
         resp = await self._request(url, headers=headers, data=data)
         resp_data = await resp.json()
-        if resp_data['result'] == nonce:
+        if resp_data['result'] == 'aiodbx':
             # token is valid, continue
             await self.log.debug('Token is valid')
             return
