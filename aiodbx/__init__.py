@@ -169,6 +169,57 @@ class AsyncDropboxAPI:
                 'Token seems valid but validation did not return the same nonce.'
             )
 
+    async def download_file(self,
+                            dropbox_path: str,
+                            local_path: str = None) -> str:
+        # downloads the file at dropbox_path to local_path
+        # returns the path the file was downloaded to
+
+        # default to current directory
+        if local_path == None:
+            local_path = os.path.basename(dropbox_path)
+
+        await self.log.info(f'Downloading {os.path.basename(local_path)}')
+        await self.log.debug(f'from {dropbox_path}')
+
+        url = 'https://content.dropboxapi.com/2/files/download'
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Dropbox-API-Arg": json.dumps({"path": dropbox_path})
+        }
+
+        resp = await self._request(url, headers)
+        async with aiofiles.open(local_path, 'wb') as f:
+            async for chunk, _ in resp.content.iter_chunks():
+                await f.write(chunk)
+            return local_path
+
+    async def download_folder(self,
+                              dropbox_path: str,
+                              local_path: str = None) -> str:
+        # downloads an entire folder as a zip file
+        # returns the local_path of the zip file
+        # https://www.dropbox.com/developers/documentation/http/documentation#files-download_zip
+
+        # default to current directory
+        if local_path == None:
+            local_path = os.path.basename(dropbox_path)
+
+        await self.log.info(f'Downloading {os.path.basename(local_path)}')
+        await self.log.debug(f'from {dropbox_path}')
+
+        url = 'https://content.dropboxapi.com/2/files/download_zip'
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Dropbox-API-Arg": json.dumps({"path": dropbox_path})
+        }
+
+        resp = await self._request(url, headers)
+        async with aiofiles.open(local_path, 'wb') as f:
+            async for chunk, _ in resp.content.iter_chunks():
+                await f.write(chunk)
+            return local_path
+
     async def download_shared_link(self,
                                    shared_link: str,
                                    local_path: str = None) -> str:
