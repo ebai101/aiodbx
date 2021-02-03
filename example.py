@@ -4,7 +4,7 @@ import asyncio
 import aiodbx
 
 
-async def task(dbx: aiodbx.AsyncDropboxAPI, shared_link: str):
+async def process_file(dbx: aiodbx.AsyncDropboxAPI, shared_link: str):
     # download from the URL shared_link to local_path
     # if no local path is provided, it is downloaded to the current directory
     # to preserve folder structures you should provide local paths yourself
@@ -23,14 +23,14 @@ async def task(dbx: aiodbx.AsyncDropboxAPI, shared_link: str):
     return new_path
 
 
-async def run_all(dbx: aiodbx.AsyncDropboxAPI, shared_links: list[str]):
+async def main(token: str, shared_links: list[str]):
     # first, validate our API token
-    async with dbx:
+    async with aiodbx.AsyncDropboxAPI(token) as dbx:
         await dbx.validate()
 
         # create a coroutine for each link in shared_links
         # run them and print a simple confirmation message when we have a result
-        coroutines = [task(dbx, link) for link in shared_links]
+        coroutines = [process_file(dbx, link) for link in shared_links]
         for coro in asyncio.as_completed(coroutines):
             try:
                 res = await coro
@@ -52,9 +52,9 @@ async def run_all(dbx: aiodbx.AsyncDropboxAPI, shared_links: list[str]):
 
 
 if __name__ == '__main__':
-    # init API
+    # load access token from the file 'tokenfile'
     with open('tokenfile', 'r') as tokenfile:
-        dbx = aiodbx.AsyncDropboxAPI(tokenfile.read().rstrip())
+        token = tokenfile.read().rstrip()
 
     # the shared links we want to download from
     # to actually test this script, change these to valid shared links
@@ -64,5 +64,5 @@ if __name__ == '__main__':
         'https://www.dropbox.com/s/blahblah/baz?dl=0',
     ]
 
-    # run our main task
-    asyncio.get_event_loop().run_until_complete(run_all(dbx, shared_links))
+    # run our main function
+    asyncio.get_event_loop().run_until_complete(main(token, shared_links))
