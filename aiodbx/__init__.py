@@ -16,16 +16,14 @@ class DropboxApiError(Exception):
         super().__init__(self.message)
 
     def __str__(self):
-        if isinstance(self.message, dict):
-            if 'error_summary' in self.message:
-                return f'{self.status} {self.message["error_summary"]}'
-            else:
-                return f'{self.status} {self.message}'
-        else:
+        if isinstance(self.message, str):
             try:
-                return f'{self.status} {json.loads(self.message)["error_summary"]}'
+                self.message = json.loads(self.message)
+                return f'{self.status} {self.message["error_summary"]}'
             except:
                 return f'{self.status} {self.message}'
+        else:
+            return f'{self.status} {self.message}'
 
 
 class Request:
