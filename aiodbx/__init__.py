@@ -385,7 +385,7 @@ class AsyncDropboxAPI:
                 resp_data = await resp.json()
                 return resp_data
 
-    async def filename_to_shared_link(self, dropbox_path: str) -> str:
+    async def create_shared_link(self, dropbox_path: str) -> str:
         # create a shared link from a dropbox filename
         # https://www.dropbox.com/developers/documentation/http/documentation#sharing-create_shared_link_with_settings
 
@@ -426,7 +426,7 @@ class AsyncDropboxAPI:
                     raise DropboxApiError(resp.status,
                                           f'Unknown Dropbox error: {err}')
 
-    async def shared_link_to_filename(self, shared_link: str) -> str:
+    async def get_shared_link_metadata(self, shared_link: str) -> str:
         # get the dropbox path of a file given its shared link
         # https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_metadata
 
@@ -445,7 +445,7 @@ class AsyncDropboxAPI:
                            headers=headers,
                            data=data) as resp:
             resp_data = await resp.json()
-            return resp_data['name']
+            return resp_data
 
     async def __aenter__(self):
         return self
