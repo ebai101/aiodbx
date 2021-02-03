@@ -29,7 +29,6 @@ class DropboxApiError(Exception):
 
 
 class Request:
-
     def __init__(self,
                  request: typing.Callable[..., typing.Any],
                  url: str,
@@ -84,21 +83,20 @@ class Request:
         return resp
 
     def __await__(
-            self) -> typing.Generator[typing.Any, None, aiohttp.ClientResponse]:
+            self
+    ) -> typing.Generator[typing.Any, None, aiohttp.ClientResponse]:
         return self.__aenter__().__await__()
 
     async def __aenter__(self) -> aiohttp.ClientResponse:
         return await self._do_request()
 
-    async def __aexit__(self, exc_type: typing.Any, exc_val: typing.Any,
-                        exc_tb: typing.Any) -> None:
+    async def __aexit__(self, *excinfo) -> None:
         if self.resp is not None:
             if not self.resp.closed:
                 self.resp.close()
 
 
 class AsyncDropboxAPI:
-
     def __init__(self,
                  token: str,
                  retry_statuses: list[int] = [429],
@@ -110,6 +108,7 @@ class AsyncDropboxAPI:
         self.client_session = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(limit_per_host=50))
         self.upload_session: list[dict] = []
+
         if not log:
             self.log = aiologger.Logger.with_default_handlers(
                 name='aiodbx',
@@ -119,9 +118,6 @@ class AsyncDropboxAPI:
                 ))
         else:
             self.log = log
-
-    def __del__(self):
-        asyncio.get_event_loop().run_until_complete(self.shutdown())
 
     async def validate(self):
         # validates the user authentication token by querying a simple string
@@ -147,12 +143,9 @@ class AsyncDropboxAPI:
             if resp_data['result'] == 'aiodbx':
                 # token is valid, continue
                 await self.log.debug('Token is valid')
-                return
+                return True
             else:
-                raise DropboxApiError(
-                    resp.status,
-                    'Token seems valid but validation did not return the same nonce.'
-                )
+                raise DropboxApiError(resp.status, 'Token is invalid')
 
     async def download_file(self,
                             dropbox_path: str,
@@ -323,8 +316,8 @@ class AsyncDropboxAPI:
                 return resp_data['entries']
             else:
                 err = await resp.text()
-                raise DropboxApiError(resp.status,
-                                      f'Unknown upload_finish response: {err}')
+                raise DropboxApiError(
+                    resp.status, f'Unknown upload_finish response: {err}')
 
     async def _upload_finish_check(self,
                                    job_id: str,
@@ -456,8 +449,9 @@ class AsyncDropboxAPI:
             resp_data = await resp.json()
             return resp_data['name']
 
-    async def shutdown(self):
-        # graceful shutdown
-        self.log.debug('Shutting down')
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *excinfo):
         await self.client_session.close()
         await self.log.shutdown()
