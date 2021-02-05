@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 
 import aiodbx
 
@@ -23,9 +24,9 @@ async def process_file(dbx: aiodbx.AsyncDropboxAPI, shared_link: str):
     return new_path
 
 
-async def main(token: str, shared_links: list[str]):
+async def main(token: str, shared_links: list[str], log: logging.Logger):
     # first, validate our API token
-    async with aiodbx.AsyncDropboxAPI(token) as dbx:
+    async with aiodbx.AsyncDropboxAPI(token, log=log) as dbx:
         await dbx.validate()
 
         # create a coroutine for each link in shared_links
@@ -36,8 +37,8 @@ async def main(token: str, shared_links: list[str]):
                 res = await coro
             except aiodbx.DropboxApiError as e:
                 # this exception is raised when the API returns an error
-                print('Encountered an error')
-                print(e)
+                log.error('Encountered an error')
+                log.error(e)
             else:
                 print(f'Processed {res}')
 
@@ -46,15 +47,24 @@ async def main(token: str, shared_links: list[str]):
         uploaded_files = await dbx.upload_finish()
 
         # print out some info
-        print('\nThe files we just uploaded are:')
+        log.info('\nThe files we just uploaded are:')
         for file in uploaded_files:
-            print(file['name'])
+            log.info(file['name'])
 
 
 if __name__ == '__main__':
     # load access token from the file 'tokenfile'
     with open('tokenfile', 'r') as tokenfile:
         token = tokenfile.read().rstrip()
+
+    # set up some logging
+    log = logging.getLogger('aiodbx_example')
+    sh = logging.StreamHandler()
+    sh.setFormatter(
+        logging.Formatter(
+            fmt='[%(levelname)5s] --- %(message)s (%(filename)s:%(lineno)s)'))
+    log.addHandler(sh)
+    log.setLevel(logging.DEBUG)
 
     # the shared links we want to download from
     # to actually test this script, change these to valid shared links
@@ -65,4 +75,4 @@ if __name__ == '__main__':
     ]
 
     # run our main function
-    asyncio.get_event_loop().run_until_complete(main(token, shared_links))
+    asyncio.get_event_loop().run_until_complete(main(token, shared_links, log))
