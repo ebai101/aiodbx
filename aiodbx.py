@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import typing
 import logging
 import aiohttp
@@ -7,9 +8,10 @@ import asyncio
 import aiofiles
 
 
-class DropboxApiError(Exception):
-    # exception for errors thrown by the API
-
+class DropboxAPIError(Exception):
+    '''
+    Exception for errors thrown by the API. Contains the HTTP status code and the returned error message.
+    '''
     def __init__(self, status: int, message: typing.Union[str, dict]):
         self.status = status
         self.message = message
@@ -27,10 +29,28 @@ class DropboxApiError(Exception):
 
 
 class Request:
+    '''
+    Wrapper for a ClientResponse object that allows automatic retries for a certain list of statuses.
+
+    request:
+        session method to call that returns a ClientResponse (e.g. session.post)
+    url:
+        url to request
+    log:
+        logger to use for log messages (default is a null logger)
+    ok_statuses:
+        list of statuses that will return without an error (default is [200])
+    retry_count:
+        number of times that the request will be retried (default is 5)
+    retry_statuses:
+        list of statuses that will cause the request to be automatically retried (default is [429])
+    **kwargs:
+        Arbitrary keyword arguments, passed thru to the `request` Callable.
+    '''
     def __init__(self,
                  request: typing.Callable[..., typing.Any],
                  url: str,
-                 log: logging.Logger = None,
+                 log: logging.Logger = logging.getLogger('null'),
                  ok_statuses: list[int] = [200],
                  retry_count: int = 5,
                  retry_statuses: list[int] = [429],
@@ -47,9 +67,18 @@ class Request:
         self.current_attempt = 0
         self.resp: typing.Optional[aiohttp.ClientResponse] = None
 
-        self.log = log or logging.getLogger('null')
-
     async def _do_request(self) -> aiohttp.ClientResponse:
+        '''
+        Performs a request. Automatically retries the request for specific return statuses.
+        Should not be called directly. Instead, use an `async with` block with a Request object to manage the response context properly.
+
+        Returns:
+            aiohttp.ClientResponse: response returned from the `self.request` callable.
+
+        Raises:
+            DropboxAPIError: If the response status is >= 400 and if it is not in `self.ok_statuses`
+        '''
+
         self.current_attempt += 1
         if self.current_attempt > 1:
             self.log.debug(
@@ -69,7 +98,7 @@ class Request:
             self.log.debug(
                 f'Request OK: {endpoint_name} returned {resp.status}')
         else:
-            raise DropboxApiError(resp.status, await resp.text())
+            raise DropboxAPIError(resp.status, await resp.text())
 
         if self.current_attempt < self.retry_count and resp.status in self.retry_statuses:
             if 'Retry-After' in resp.headers:
@@ -97,14 +126,23 @@ class Request:
 
 
 class AsyncDropboxAPI:
+    '''
+    Dropbox API client using asynchronous HTTP requests.
+
+    Args:
+        token:
+            a Dropbox API access token
+        retry_statuses:
+            list of statuses that will automatically be retried (default is [429])
+        log:
+            logger to use for log messages (default is a null logger)
+    '''
     def __init__(self,
                  token: str,
                  retry_statuses: list[int] = [429],
-                 allowed_retries: int = 5,
                  log: logging.Logger = None):
         self.token = token
         self.retry_statuses = retry_statuses
-        self.allowed_retries = allowed_retries
         self.client_session = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(limit_per_host=50))
         self.upload_session: list[dict] = []
@@ -112,19 +150,27 @@ class AsyncDropboxAPI:
         self.log = log or logging.getLogger('null')
 
     async def validate(self):
-        # validates the user authentication token by querying a simple string
-        # if the API returns the same string, the token is valid
-        # a DropboxApiError will be raised by the request handler if the token is invalid
-        # https://www.dropbox.com/developers/documentation/http/documentation#check-user
+        '''
+        Validates the user authentication token.
+        https://www.dropbox.com/developers/documentation/http/documentation#check-user
+
+        Returns:
+            bool:
+                True if the API returns the same string (thus the token is valid)
+        Raises:
+            DropboxApiError:
+                If the token is invalid
+        '''
 
         self.log.debug('Validating token')
 
+        nonce = base64.b64encode(os.urandom(8), altchars=b'-_').decode('utf-8')
         url = 'https://api.dropboxapi.com/2/check/user'
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-        data = json.dumps({'query': 'aiodbx'})
+        data = json.dumps({'query': nonce})
 
         async with Request(self.client_session.post,
                            url,
@@ -132,18 +178,28 @@ class AsyncDropboxAPI:
                            headers=headers,
                            data=data) as resp:
             resp_data = await resp.json()
-            if resp_data['result'] == 'aiodbx':
-                # token is valid, continue
+            if resp_data['result'] == nonce:
                 self.log.debug('Token is valid')
                 return True
             else:
-                raise DropboxApiError(resp.status, 'Token is invalid')
+                raise DropboxAPIError(resp.status, 'Token is invalid')
 
     async def download_file(self,
                             dropbox_path: str,
                             local_path: str = None) -> str:
-        # downloads the file at dropbox_path to local_path
-        # returns the path the file was downloaded to
+        '''
+        Downloads a single file.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-download
+
+        Args:
+            dropbox_path:
+                File path on Dropbox to download from
+            local_path:
+                Path on the local disk to download to (defaults to None, which downloads to the current directory)
+        Returns:
+            str:
+                `local_path` where the file was downloaded to
+        '''
 
         # default to current directory
         if local_path == None:
@@ -170,9 +226,19 @@ class AsyncDropboxAPI:
     async def download_folder(self,
                               dropbox_path: str,
                               local_path: str = None) -> str:
-        # downloads an entire folder as a zip file
-        # returns the local_path of the zip file
-        # https://www.dropbox.com/developers/documentation/http/documentation#files-download_zip
+        '''
+        Downloads a folder as a zip file.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-download_zip
+
+        Args:
+            dropbox_path:
+                Folder path on Dropbox to download from
+            local_path:
+                Path on the local disk to download to (defaults to None, which downloads to the current directory)
+        Returns:
+            str:
+                `local_path` where the zip file was downloaded to
+        '''
 
         # default to current directory
         if local_path == None:
@@ -199,9 +265,19 @@ class AsyncDropboxAPI:
     async def download_shared_link(self,
                                    shared_link: str,
                                    local_path: str = None) -> str:
-        # downloads a file from a shared link
-        # returns the path the file was downloaded to
-        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_file
+        '''
+        Downloads a file from a shared link.
+        https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_file
+
+        Args:
+            shared_link:
+                Shared link to download from
+            local_path:
+                Path on the local disk to download to (defaults to None, which downloads to the current directory)
+        Returns:
+            str:
+                `local_path` where the file was downloaded to
+        '''
 
         # default to current directory, with the path in the shared link
         if local_path == None:
@@ -226,9 +302,27 @@ class AsyncDropboxAPI:
                 return local_path
 
     async def upload_start(self, local_path: str, dropbox_path: str) -> dict:
-        # uploads a single file to an upload session
-        # returns an UploadSessionFinishArg dict with information on the upload
-        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-start
+        '''
+        Uploads a single file to an upload session. This should be used when uploading large quantities of files.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-start
+
+        Args:
+            local_path:
+                Local path to upload from.
+            dropbox_path:
+                Dropbox path to upload to.
+        Returns:
+            dict:
+                UploadSessionFinishArg dict with information on the upload.
+                This dict is automatically stored in `self.upload_session` to be committed later with `upload_finish`.
+                It is returned here anyways so that the commit information can be used for other purposes.
+        Raises:
+            ValueError:
+                If `local_path` does not exist.
+            RuntimeError:
+                If the current upload session is larger than 1000 files.
+                To avoid this, call `upload_finish` regularly to split high quantity uploads into batches.
+        '''
 
         if not os.path.exists(local_path):
             raise ValueError(f"local_path {local_path} does not exist")
@@ -272,10 +366,21 @@ class AsyncDropboxAPI:
                 self.upload_session.append(commit)
                 return commit
 
-    async def upload_finish(self, check_interval: float = 5) -> list[dict]:
-        # finishes an upload batch
-        # returns a list of FileMetadata dicts
-        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch
+    async def upload_finish(self, check_interval: float = 3) -> list[dict]:
+        '''
+        Finishes an upload batch.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch
+
+        Args:
+            check_interval:
+                how often to check on the upload completion status (default is 3)
+        Returns:
+            list[dict]:
+                List of FileMetadata dicts containing metadata on each uploaded file
+        Raises:
+            DropboxAPIError:
+                If an unknown response is returned from the API.
+        '''
 
         if len(self.upload_session) == 0:
             raise RuntimeError(
@@ -308,15 +413,26 @@ class AsyncDropboxAPI:
                 return resp_data['entries']
             else:
                 err = await resp.text()
-                raise DropboxApiError(
+                raise DropboxAPIError(
                     resp.status, f'Unknown upload_finish response: {err}')
 
     async def _upload_finish_check(self,
                                    job_id: str,
                                    check_interval: float = 5) -> list[dict]:
-        # checks on an upload_finish async job every check_interval seconds
-        # returns a list of FileMetadata dicts
-        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch-check:w
+        '''
+        Checks on an `upload_finish` async job every `check_interval` seconds.
+        Should not be called directly, this is automatically called from `upload_finish`.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch-check:w
+
+        Args:
+            job_id:
+                the job ID to check the status of
+            check_interval:
+                how often in seconds to check the status
+        Returns:
+            list[dict]:
+                List of FileMetadata dicts containing metadata on each uploaded file
+        '''
 
         self.log.debug(
             f'Batch not finished, checking every {check_interval} seconds')
@@ -345,18 +461,36 @@ class AsyncDropboxAPI:
                         f'Checking again in {check_interval} seconds')
                     continue
 
-    async def upload_single(self,
-                            local_path: str,
-                            dropbox_path: str,
-                            args: dict = None) -> dict:
-        # upload a single file from local_path to dropbox_path
-        # returns the FileMetadata of the uploaded file
-        # https://www.dropbox.com/developers/documentation/http/documentation#files-upload
+    async def upload_single(
+        self,
+        local_path: str,
+        dropbox_path: str,
+        args: dict = {
+            'mode': 'add',
+            'autorename': False,
+            'mute': False
+        }) -> dict:
+        '''
+        Uploads a single file. This should only be used for small quantities of files, for larger quantities use `upload_start` and `upload_finish`.
+        https://www.dropbox.com/developers/documentation/http/documentation#files-upload
+
+        Args:
+            local_path:
+                Local path to upload from.
+            dropbox_path:
+                Dropbox path to upload to.
+            args:
+                Dictionary of arguments to pass to the API.
+        Returns:
+            dict:
+                FileMetadata of the uploaded file, if successful.
+        Raises:
+            ValueError:
+                If `local_path` does not exist.
+        '''
 
         if not os.path.exists(local_path):
             raise ValueError(f"local_path {local_path} does not exist")
-        if not args:
-            args = {'mode': 'add', 'autorename': False, 'mute': False}
         args['path'] = dropbox_path
 
         self.log.info(f'Uploading {os.path.basename(local_path)}')
@@ -380,8 +514,21 @@ class AsyncDropboxAPI:
                 return resp_data
 
     async def create_shared_link(self, dropbox_path: str) -> str:
-        # create a shared link from a dropbox filename
-        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-create_shared_link_with_settings
+        '''
+        Create a shared link for a file in Dropbox.
+        https://www.dropbox.com/developers/documentation/http/documentation#sharing-create_shared_link_with_settings
+
+        Args:
+            dropbox_path:
+                Path of a file on Dropbox to create a shared link for.
+        Returns:
+            str:
+                A shared link for the given file.
+                If a shared link already exists, the existing one is returned, otherwise a new one is created.
+        Raises:
+            DropboxAPIError:
+                If `dropbox_path` does not exist on Dropbox, or if an otherwise unknown status is returned.
+        '''
 
         self.log.info(
             f'Creating shared link for file {os.path.basename(dropbox_path)}')
@@ -413,18 +560,27 @@ class AsyncDropboxAPI:
                     return resp_data['error']['shared_link_already_exists'][
                         'metadata']['url']
                 elif 'not_found' in resp_data['error_summary']:
-                    raise DropboxApiError(
+                    raise DropboxAPIError(
                         resp.status, f'Path {dropbox_path} does not exist')
                 else:
                     err = await resp.text()
-                    raise DropboxApiError(resp.status,
+                    raise DropboxAPIError(resp.status,
                                           f'Unknown Dropbox error: {err}')
 
-    async def get_shared_link_metadata(self, shared_link: str) -> str:
-        # get the dropbox path of a file given its shared link
-        # https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_metadata
+    async def get_shared_link_metadata(self, shared_link: str) -> dict:
+        '''
+        Gets the metadata for the file/folder behind a shared link.
+        https://www.dropbox.com/developers/documentation/http/documentation#sharing-get_shared_link_metadata
 
-        self.log.info(f'Getting filename from shared link {shared_link}')
+        Args:
+            shared_link:
+                A shared link which points to the file or folder to get metadata from.
+        Returns:
+            dict:
+                FileMetadata or FolderMetadata for the file/folder behind the shared link
+        '''
+
+        self.log.info(f'Getting metadata from shared link {shared_link}')
 
         url = 'https://api.dropboxapi.com/2/sharing/get_shared_link_metadata'
         headers = {
