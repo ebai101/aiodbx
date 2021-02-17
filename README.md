@@ -1,12 +1,12 @@
 # aiodbx
 
-Rough async Python implementation of the Dropbox HTTP API using aiohttp.
+Rough async Python implementation of the Dropbox HTTP API using aiohttp. Primarily created to speed up large batch upload/download tasks, which are heavily bottlenecked by the official Python library's synchronous requests.
 
-Check out example.py for a simple use case which downloads some files, modifies them and re-uploads them.
+Check out `example.py` for a simple use case which downloads some files, modifies them and re-uploads them.
 
 ## Implementation
 
-Below are a list of implemented endpoints and their corresponding methods in the AsyncDropboxAPI class.
+Below is a list of implemented endpoints and their corresponding methods in the `AsyncDropboxAPI` class.
 
 | Endpoint                                                     | Method name              |
 | ------------------------------------------------------------ | ------------------------ |
