@@ -35,7 +35,7 @@ async def main(token: str, shared_links: list[str], log: logging.Logger):
         for coro in asyncio.as_completed(coroutines):
             try:
                 res = await coro
-            except aiodbx.DropboxApiError as e:
+            except aiodbx.DropboxAPIError as e:
                 # this exception is raised when the API returns an error
                 log.error('Encountered an error')
                 log.error(e)
