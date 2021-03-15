@@ -51,9 +51,9 @@ class Request:
                  request: typing.Callable[..., typing.Any],
                  url: str,
                  log: logging.Logger = logging.getLogger('null'),
-                 ok_statuses: list[int] = [200],
+                 ok_statuses: typing.List[int] = [200],
                  retry_count: int = 5,
-                 retry_statuses: list[int] = [429],
+                 retry_statuses: typing.List[int] = [429],
                  **kwargs: typing.Any):
         self.request = request
         self.url = url
@@ -139,13 +139,13 @@ class AsyncDropboxAPI:
     '''
     def __init__(self,
                  token: str,
-                 retry_statuses: list[int] = [429],
+                 retry_statuses: typing.List[int] = [429],
                  log: logging.Logger = None):
         self.token = token
         self.retry_statuses = retry_statuses
         self.client_session = aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(limit_per_host=50))
-        self.upload_session: list[dict] = []
+        self.upload_session: typing.List[dict] = []
 
         self.log = log or logging.getLogger('null')
 
@@ -366,7 +366,8 @@ class AsyncDropboxAPI:
                 self.upload_session.append(commit)
                 return commit
 
-    async def upload_finish(self, check_interval: float = 3) -> list[dict]:
+    async def upload_finish(self,
+                            check_interval: float = 3) -> typing.List[dict]:
         '''
         Finishes an upload batch.
         https://www.dropbox.com/developers/documentation/http/documentation#files-upload_session-finish_batch
@@ -375,7 +376,7 @@ class AsyncDropboxAPI:
             check_interval:
                 how often to check on the upload completion status (default is 3)
         Returns:
-            list[dict]:
+            typing.List[dict]:
                 List of FileMetadata dicts containing metadata on each uploaded file
         Raises:
             DropboxAPIError:
@@ -418,7 +419,8 @@ class AsyncDropboxAPI:
 
     async def _upload_finish_check(self,
                                    job_id: str,
-                                   check_interval: float = 5) -> list[dict]:
+                                   check_interval: float = 5
+                                   ) -> typing.List[dict]:
         '''
         Checks on an `upload_finish` async job every `check_interval` seconds.
         Should not be called directly, this is automatically called from `upload_finish`.
@@ -430,7 +432,7 @@ class AsyncDropboxAPI:
             check_interval:
                 how often in seconds to check the status
         Returns:
-            list[dict]:
+            typing.List[dict]:
                 List of FileMetadata dicts containing metadata on each uploaded file
         '''
 
@@ -588,6 +590,31 @@ class AsyncDropboxAPI:
             "Content-Type": "application/json"
         }
         data = json.dumps({'url': shared_link})
+
+        async with Request(self.client_session.post,
+                           url,
+                           self.log,
+                           headers=headers,
+                           data=data) as resp:
+            resp_data = await resp.json()
+            return resp_data
+
+    async def list_folder(self,
+                          folder_path: str,
+                          recursive: bool = False) -> dict:
+        '''
+        Lists the contents of a folder.
+        '''
+
+        url = 'https://api.dropboxapi.com/2/files/list_folder'
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        }
+        data = json.dumps({
+            'path': folder_path,
+            'recursive': recursive,
+        })
 
         async with Request(self.client_session.post,
                            url,
