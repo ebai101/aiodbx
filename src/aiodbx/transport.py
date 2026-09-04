@@ -7,6 +7,8 @@ from typing import Any
 
 import aiohttp
 
+from aiodbx.hosts import EndpointHosts
+
 from .errors import (
     DropboxAuthenticationError,
     DropboxConflictError,
@@ -18,8 +20,6 @@ from .errors import (
 )
 from .retry import RetryPolicy
 
-API_HOST = "https://api.dropboxapi.com"
-
 
 class DropboxTransport:
     """Private HTTP transport for Dropbox JSON-RPC endpoints."""
@@ -30,12 +30,12 @@ class DropboxTransport:
         session: aiohttp.ClientSession,
         access_token: str,
         retry_policy: RetryPolicy,
-        api_host: str = API_HOST,
+        hosts: EndpointHosts,
     ) -> None:
         self._session = session
         self._access_token = access_token
         self._retry_policy = retry_policy
-        self._api_host = api_host.rstrip("/")
+        self._hosts = hosts
 
     async def rpc(
         self,
@@ -47,7 +47,7 @@ class DropboxTransport:
             raise ValueError("Dropbox endpoint paths must start with '/'.")
 
         return await self._request_json(
-            url=f"{self._api_host}{path}",
+            url=f"{self._hosts.api}{path}",
             headers={"Content-Type": "application/json"},
             json_body=arg,
         )

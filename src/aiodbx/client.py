@@ -5,6 +5,8 @@ from typing import Self
 
 import aiohttp
 
+from aiodbx.hosts import EndpointHosts
+
 from .files import FilesNamespace
 from .retry import RetryPolicy
 from .transport import DropboxTransport
@@ -50,7 +52,7 @@ class AsyncDropbox:
         *,
         config: ClientConfig | None = None,
         retry_policy: RetryPolicy | None = None,
-        _api_host: str = "https://api.dropboxapi.com",
+        _hosts: EndpointHosts | None = None,
     ) -> None:
         if not access_token:
             raise ValueError("access_token must not be empty.")
@@ -62,7 +64,7 @@ class AsyncDropbox:
         self._transport: DropboxTransport | None = None
         self._users: UsersNamespace | None = None
         self._files: FilesNamespace | None = None
-        self._api_host = _api_host
+        self._hosts = _hosts or EndpointHosts()
 
     @property
     def users(self) -> UsersNamespace:
@@ -115,7 +117,7 @@ class AsyncDropbox:
             session=session,
             access_token=self._access_token,
             retry_policy=self._retry_policy,
-            api_host=self._api_host,
+            hosts=self._hosts,
         )
 
         self._session = session

@@ -13,6 +13,7 @@ from aiodbx import (
     DropboxRateLimitError,
     RetryPolicy,
 )
+from aiodbx.hosts import EndpointHosts
 
 from .helpers import make_app
 
@@ -30,11 +31,9 @@ async def test_401_becomes_authentication_error(aiohttp_server) -> None:
         )
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
-    async with AsyncDropbox(
-        "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
-    ) as dbx:
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         transport = dbx._transport
         assert transport is not None
 
@@ -59,11 +58,9 @@ async def test_409_becomes_conflict_error(aiohttp_server) -> None:
         )
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
-    async with AsyncDropbox(
-        "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
-    ) as dbx:
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         transport = dbx._transport
         assert transport is not None
 
@@ -77,11 +74,9 @@ async def test_invalid_success_json_becomes_dropbox_error(aiohttp_server) -> Non
         return web.Response(text="not json", content_type="text/plain")
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
-    async with AsyncDropbox(
-        "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
-    ) as dbx:
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         transport = dbx._transport
         assert transport is not None
 
@@ -107,11 +102,10 @@ async def test_rate_limit_is_retried(aiohttp_server) -> None:
         return web.json_response({"ok": True})
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
     async with AsyncDropbox(
-        "test-token",
-        retry_policy=RetryPolicy(max_attempts=2),
-        _api_host=str(server.make_url("/")).rstrip("/"),
+        "test-token", retry_policy=RetryPolicy(max_attempts=2), _hosts=hosts
     ) as dbx:
         transport = dbx._transport
         assert transport is not None
@@ -131,11 +125,12 @@ async def test_rate_limit_exhaustion_exposes_retry_after(aiohttp_server) -> None
         )
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
     async with AsyncDropbox(
         "test-token",
         retry_policy=RetryPolicy(max_attempts=1),
-        _api_host=str(server.make_url("/")).rstrip("/"),
+        _hosts=hosts,
     ) as dbx:
         transport = dbx._transport
         assert transport is not None
@@ -156,11 +151,9 @@ async def test_cancellation_is_not_retried(aiohttp_server) -> None:
         return web.json_response({"ok": True})
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
-    async with AsyncDropbox(
-        "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
-    ) as dbx:
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         transport = dbx._transport
         assert transport is not None
 
@@ -187,11 +180,9 @@ async def test_nested_dropbox_error_tag_is_exposed(aiohttp_server) -> None:
         )
 
     server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
-    async with AsyncDropbox(
-        "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
-    ) as dbx:
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         transport = dbx._transport
         assert transport is not None
 

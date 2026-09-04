@@ -4,6 +4,7 @@ import pytest
 from aiohttp import web
 
 from aiodbx import AsyncDropbox
+from aiodbx.hosts import EndpointHosts
 
 from .helpers import make_app
 
@@ -26,10 +27,11 @@ async def test_get_metadata_sends_expected_arguments(aiohttp_server) -> None:
         )
 
     server = await aiohttp_server(make_app({"/2/files/get_metadata": get_metadata}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
     async with AsyncDropbox(
         "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
+        _hosts=hosts,
     ) as dbx:
         response = await dbx.files.get_metadata("/report.txt")
 
@@ -77,10 +79,11 @@ async def test_iter_folder_follows_cursor(aiohttp_server) -> None:
             }
         )
     )
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
     async with AsyncDropbox(
         "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
+        _hosts=hosts,
     ) as dbx:
         entries = [entry async for entry in dbx.files.iter_folder("/")]
 

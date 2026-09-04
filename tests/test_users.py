@@ -4,6 +4,7 @@ import pytest
 from aiohttp import web
 
 from aiodbx import AsyncDropbox
+from aiodbx.hosts import EndpointHosts
 
 from .helpers import make_app
 
@@ -25,10 +26,11 @@ async def test_get_current_account_sends_authorized_json_rpc_request(
         requests=requests,
     )
     server = await aiohttp_server(app)
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
 
     async with AsyncDropbox(
         "test-token",
-        _api_host=str(server.make_url("/")).rstrip("/"),
+        _hosts=hosts,
     ) as dbx:
         account = await dbx.users.get_current_account()
 
