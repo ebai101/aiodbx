@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aiodbx"
+version = "0.2.0a1"
+description = "An asyncio-native Dropbox API v2 client."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "ebai101" }]
+dependencies = ["aiohttp>=3.10,<4"]
+
+[project.urls]
+Homepage = "https://github.com/ebai101/aiodbx"
+Repository = "https://github.com/ebai101/aiodbx"
+Issues = "https://github.com/ebai101/aiodbx/issues"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8", "ty>=0.0.1a20"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aiodbx"]
+
+[tool.ty.environment]
+python-version = "3.11"
