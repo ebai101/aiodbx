@@ -5,6 +5,7 @@ from .errors import (
     DropboxError,
     DropboxNotFoundError,
     DropboxPermissionError,
+    DropboxProtocolError,
     DropboxRateLimitError,
     DropboxTransportError,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "DropboxError",
     "DropboxNotFoundError",
     "DropboxPermissionError",
+    "DropboxProtocolError",
     "DropboxRateLimitError",
     "DropboxTransportError",
     "RetryPolicy",

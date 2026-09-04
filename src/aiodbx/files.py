@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+from .errors import DropboxProtocolError
 from .transport import DropboxTransport
 
 
@@ -100,7 +101,3 @@ class FilesNamespace:
                 )
 
             page = await self.list_folder_continue(cursor)
-
-
-class DropboxProtocolError(RuntimeError):
-    """Dropbox returned a syntactically valid but unexpected response shape."""

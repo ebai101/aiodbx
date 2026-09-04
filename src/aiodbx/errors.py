@@ -56,3 +56,7 @@ class DropboxRateLimitError(DropboxError):
 
 class DropboxTransportError(DropboxError):
     """A local network, connection, or timeout failure occurred."""
+
+
+class DropboxProtocolError(DropboxError):
+    """Dropbox returned a successful response with an unexpected shape."""
