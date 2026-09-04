@@ -5,9 +5,11 @@ from aiohttp import web
 
 from aiodbx import AsyncDropbox
 
+from .helpers import make_app
+
 
 @pytest.mark.asyncio
-async def test_get_metadata_sends_expected_arguments(server_factory) -> None:
+async def test_get_metadata_sends_expected_arguments(aiohttp_server) -> None:
     async def get_metadata(request: web.Request) -> web.Response:
         assert await request.json() == {
             "path": "/report.txt",
@@ -23,20 +25,23 @@ async def test_get_metadata_sends_expected_arguments(server_factory) -> None:
             }
         )
 
-    server = await server_factory({"/2/files/get_metadata": get_metadata})
+    server = await aiohttp_server(make_app({"/2/files/get_metadata": get_metadata}))
 
-    async with AsyncDropbox("test-token") as dbx:
-        transport = dbx._transport
-        assert transport is not None
-        transport._api_host = server.base_url
-
+    async with AsyncDropbox(
+        "test-token",
+        _api_host=str(server.make_url("/")).rstrip("/"),
+    ) as dbx:
         response = await dbx.files.get_metadata("/report.txt")
 
-    assert response[".tag"] == "file"
+    assert response == {
+        ".tag": "file",
+        "name": "report.txt",
+        "path_display": "/report.txt",
+    }
 
 
 @pytest.mark.asyncio
-async def test_iter_folder_follows_cursor(server_factory) -> None:
+async def test_iter_folder_follows_cursor(aiohttp_server) -> None:
     async def list_folder(request: web.Request) -> web.Response:
         assert await request.json() == {
             "path": "/",
@@ -48,37 +53,38 @@ async def test_iter_folder_follows_cursor(server_factory) -> None:
         }
         return web.json_response(
             {
-                "entries": [{"name": "first", ".tag": "file"}],
+                "entries": [{".tag": "file", "name": "first"}],
                 "cursor": "cursor-1",
                 "has_more": True,
             }
         )
 
-    async def continue_list_folder(request: web.Request) -> web.Response:
+    async def list_folder_continue(request: web.Request) -> web.Response:
         assert await request.json() == {"cursor": "cursor-1"}
         return web.json_response(
             {
-                "entries": [{"name": "second", ".tag": "folder"}],
+                "entries": [{".tag": "folder", "name": "second"}],
                 "cursor": "cursor-2",
                 "has_more": False,
             }
         )
 
-    server = await server_factory(
-        {
-            "/2/files/list_folder": list_folder,
-            "/2/files/list_folder/continue": continue_list_folder,
-        }
+    server = await aiohttp_server(
+        make_app(
+            {
+                "/2/files/list_folder": list_folder,
+                "/2/files/list_folder/continue": list_folder_continue,
+            }
+        )
     )
 
-    async with AsyncDropbox("test-token") as dbx:
-        transport = dbx._transport
-        assert transport is not None
-        transport._api_host = server.base_url
-
+    async with AsyncDropbox(
+        "test-token",
+        _api_host=str(server.make_url("/")).rstrip("/"),
+    ) as dbx:
         entries = [entry async for entry in dbx.files.iter_folder("/")]
 
     assert entries == [
-        {"name": "first", ".tag": "file"},
-        {"name": "second", ".tag": "folder"},
+        {".tag": "file", "name": "first"},
+        {".tag": "folder", "name": "second"},
     ]

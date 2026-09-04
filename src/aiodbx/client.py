@@ -50,6 +50,7 @@ class AsyncDropbox:
         *,
         config: ClientConfig | None = None,
         retry_policy: RetryPolicy | None = None,
+        _api_host: str = "https://api.dropboxapi.com",
     ) -> None:
         if not access_token:
             raise ValueError("access_token must not be empty.")
@@ -61,6 +62,7 @@ class AsyncDropbox:
         self._transport: DropboxTransport | None = None
         self._users: UsersNamespace | None = None
         self._files: FilesNamespace | None = None
+        self._api_host = _api_host
 
     @property
     def users(self) -> UsersNamespace:
@@ -113,6 +115,7 @@ class AsyncDropbox:
             session=session,
             access_token=self._access_token,
             retry_policy=self._retry_policy,
+            api_host=self._api_host,
         )
 
         self._session = session

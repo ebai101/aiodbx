@@ -17,7 +17,13 @@ Repository = "https://github.com/ebai101/aiodbx"
 Issues = "https://github.com/ebai101/aiodbx/issues"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8", "ty>=0.0.1a20"]
+dev = [
+  "pytest>=8",
+  "pytest-aiohttp>=1.1.1",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+  "ty>=0.0.1a20",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
