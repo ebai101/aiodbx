@@ -3,3 +3,6 @@ python = "3.11"
 
 [settings]
 python.uv_venv_auto = "create|source"
+
+[env]
+_.file = '.env'
