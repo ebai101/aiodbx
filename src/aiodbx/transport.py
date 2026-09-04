@@ -80,7 +80,7 @@ class DropboxTransport:
             except (aiohttp.ClientError, TimeoutError) as exc:
                 if attempt >= self._retry_policy.max_attempts:
                     raise DropboxTransportError(
-                        message="Dropbox request failed at the transport layer."
+                        message=self._transport_message(exc)
                     ) from exc
 
                 await asyncio.sleep(self._retry_policy.delay_for_attempt(attempt))
@@ -133,7 +133,6 @@ class DropboxTransport:
         body = await response.text()
         payload = self._parse_object_or_none(body)
         error_value = payload.get("error") if payload is not None else None
-        error_tag = error_value.get(".tag") if isinstance(error_value, dict) else None
 
         kwargs = {
             "message": "Dropbox API request failed.",
@@ -141,7 +140,7 @@ class DropboxTransport:
             "error_summary": self._string_or_none(
                 payload.get("error_summary") if payload is not None else None
             ),
-            "error_tag": self._string_or_none(error_tag),
+            "error_tag": self._error_tag(error_value),
             "request_id": self._request_id(response),
             "retry_after": self._parse_retry_after(response.headers.get("Retry-After")),
             "response_body": body,
@@ -184,3 +183,39 @@ class DropboxTransport:
             return max(0.0, float(value))
         except ValueError:
             return None
+
+    @staticmethod
+    def _transport_message(exc: BaseException) -> str:
+        message = str(exc).strip()
+        if message:
+            return (
+                "Dropbox request failed at the transport layer: "
+                f"{exc.__class__.__name__}: {message}"
+            )
+        return (
+            f"Dropbox request failed at the transport layer: {exc.__class__.__name__}"
+        )
+
+    @classmethod
+    def _error_tag(cls, error_value: object) -> str | None:
+        """Return a slash-delimited Dropbox tagged-error path when available."""
+        if not isinstance(error_value, dict):
+            return None
+
+        tags: list[str] = []
+        current: object = error_value
+
+        while isinstance(current, dict):
+            tag = current.get(".tag")
+            if not isinstance(tag, str):
+                break
+
+            tags.append(tag)
+            next_value = current.get(tag)
+
+            if not isinstance(next_value, dict):
+                break
+
+            current = next_value
+
+        return "/".join(tags) if tags else None

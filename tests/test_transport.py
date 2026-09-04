@@ -170,3 +170,69 @@ async def test_cancellation_is_not_retried(aiohttp_server) -> None:
 
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_nested_dropbox_error_tag_is_exposed(aiohttp_server) -> None:
+    async def handler(_: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "error_summary": "path/not_found/..",
+                "error": {
+                    ".tag": "path",
+                    "path": {".tag": "not_found"},
+                },
+            },
+            status=409,
+        )
+
+    server = await aiohttp_server(make_app({"/2/test": handler}))
+
+    async with AsyncDropbox(
+        "test-token",
+        _api_host=str(server.make_url("/")).rstrip("/"),
+    ) as dbx:
+        transport = dbx._transport
+        assert transport is not None
+
+        with pytest.raises(DropboxConflictError) as caught:
+            await transport.rpc("/2/test", {})
+
+    assert caught.value.error_tag == "path/not_found"
+    assert caught.value.error_summary == "path/not_found/.."
+
+
+def test_error_string_includes_safe_metadata() -> None:
+    error = DropboxError(
+        message="Dropbox API request failed.",
+        status_code=429,
+        error_summary="too_many_requests/..",
+        error_tag="too_many_requests",
+        request_id="request-123",
+        retry_after=2.5,
+        response_body='{"potentially":"sensitive"}',
+    )
+
+    assert str(error) == (
+        "Dropbox API request failed. "
+        "(status=429, error=too_many_requests/.., "
+        "tag=too_many_requests, request_id=request-123, retry_after=2.5s)"
+    )
+    assert "potentially" not in str(error)
+
+
+def test_error_diagnostic_details_excludes_response_body() -> None:
+    error = DropboxError(
+        message="failed",
+        status_code=400,
+        error_summary="path/malformed_path/..",
+        response_body='{"secret":"do-not-log"}',
+    )
+
+    assert error.diagnostic_details() == {
+        "status_code": 400,
+        "error_summary": "path/malformed_path/..",
+        "error_tag": None,
+        "request_id": None,
+        "retry_after": None,
+    }

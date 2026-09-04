@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+from aiodbx.paths import validate_non_root_path
+
 from .errors import DropboxProtocolError
 from .transport import DropboxTransport
 
@@ -22,6 +24,7 @@ class FilesNamespace:
         include_has_explicit_shared_members: bool = False,
     ) -> dict[str, Any]:
         """Return metadata for a Dropbox file or folder."""
+        validate_non_root_path(path)
         return await self._transport.rpc(
             "/2/files/get_metadata",
             {
