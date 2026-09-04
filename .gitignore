@@ -1,5 +1,6 @@
 venv/
 **/__pycache__/
 tokenfile
-/repomix-output.txt
+/repomix-output.xml
 /.env
+/.DS_Store
