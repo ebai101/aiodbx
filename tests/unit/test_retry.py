@@ -15,11 +15,24 @@ def test_retry_policy_retries_429_and_5xx() -> None:
     assert policy.should_retry_status(404) is False
 
 
-def test_retry_after_is_bounded() -> None:
-    policy = RetryPolicy(max_delay=10)
+@pytest.mark.parametrize(
+    ("attempt", "retry_after", "max_delay", "expected"),
+    [
+        (1, 20.0, 10.0, 10.0),
+        (1, -1.0, 10.0, 0.0),
+        (4, 3.5, 10.0, 3.5),
+        (4, 50.0, 10.0, 10.0),
+    ],
+)
+def test_retry_after_takes_priority_and_is_bounded(
+    attempt: int,
+    retry_after: float,
+    max_delay: float,
+    expected: float,
+) -> None:
+    policy = RetryPolicy(base_delay=0.25, max_delay=max_delay)
 
-    assert policy.delay_for_attempt(1, retry_after=20) == 10
-    assert policy.delay_for_attempt(1, retry_after=-1) == 0
+    assert policy.delay_for_attempt(attempt, retry_after=retry_after) == expected
 
 
 @pytest.mark.parametrize(
@@ -64,11 +77,3 @@ def test_retry_policy_delay_is_bounded_by_exponential_cap(
     delay = policy.delay_for_attempt(attempt)
 
     assert 0.0 <= delay <= upper_bound
-
-
-def test_retry_after_takes_priority_over_exponential_backoff() -> None:
-    policy = RetryPolicy(base_delay=0.25, max_delay=10.0)
-
-    assert policy.delay_for_attempt(4, retry_after=3.5) == 3.5
-    assert policy.delay_for_attempt(4, retry_after=50.0) == 10.0
-    assert policy.delay_for_attempt(4, retry_after=-1.0) == 0.0

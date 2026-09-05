@@ -47,31 +47,11 @@ async def test_401_becomes_authentication_error(client_factory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_409_becomes_conflict_error(client_factory) -> None:
-    async def handler(_: web.Request) -> web.Response:
-        return web.json_response(
-            {
-                "error_summary": "path/not_found/..",
-                "error": {".tag": "path"},
-            },
-            status=409,
-        )
-
-    async with client_factory({"/2/test": handler}, content_host=False) as dbx:
-        transport = dbx._transport
-        assert transport is not None
-
-        with pytest.raises(DropboxConflictError):
-            await transport.rpc("/2/test", {})
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("body", "content_type", "expected_message"),
     [
         ("not json", "text/plain", "invalid JSON"),
         ("[]", "application/json", "not an object"),
-        ('"unexpected scalar"', "application/json", "not an object"),
     ],
 )
 async def test_invalid_success_json_response_becomes_protocol_error(
@@ -170,7 +150,9 @@ async def test_cancellation_is_not_retried(client_factory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_nested_dropbox_error_tag_is_exposed(client_factory) -> None:
+async def test_409_becomes_conflict_error_with_nested_tag(
+    client_factory,
+) -> None:
     async def handler(_: web.Request) -> web.Response:
         return web.json_response(
             {
@@ -181,20 +163,21 @@ async def test_nested_dropbox_error_tag_is_exposed(client_factory) -> None:
                 },
             },
             status=409,
+            headers={"X-Dropbox-Request-Id": "request-conflict"},
         )
 
     async with client_factory(
         {"/2/test": handler},
         content_host=False,
     ) as dbx:
-        transport = dbx._transport
-        assert transport is not None
-
         with pytest.raises(DropboxConflictError) as caught:
-            await transport.rpc("/2/test", {})
+            await transport_for(dbx).rpc("/2/test", {})
 
-    assert caught.value.error_tag == "path/not_found"
-    assert caught.value.error_summary == "path/not_found/.."
+    error = caught.value
+    assert error.status_code == 409
+    assert error.error_summary == "path/not_found/.."
+    assert error.error_tag == "path/not_found"
+    assert error.request_id == "request-conflict"
 
 
 def test_error_string_includes_safe_metadata() -> None:

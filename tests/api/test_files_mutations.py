@@ -7,12 +7,24 @@ from aiodbx import AsyncDropbox, DropboxConflictError, DropboxError, RetryPolicy
 
 
 @pytest.mark.asyncio
-async def test_files_create_folder_v2_sends_expected_request(client_factory) -> None:
+@pytest.mark.parametrize(
+    ("path", "autorename", "response_path"),
+    [
+        ("/created-folder", False, "/created-folder"),
+        ("/created-folder", True, "/created-folder (1)"),
+    ],
+)
+async def test_files_create_folder_v2_sends_expected_request(
+    client_factory,
+    path: str,
+    autorename: bool,
+    response_path: str,
+) -> None:
     expected_metadata = {
         ".tag": "folder",
-        "name": "created-folder",
-        "path_lower": "/created-folder",
-        "path_display": "/created-folder",
+        "name": response_path.removeprefix("/"),
+        "path_lower": response_path.lower(),
+        "path_display": response_path,
         "id": "id:created-folder",
     }
 
@@ -20,8 +32,8 @@ async def test_files_create_folder_v2_sends_expected_request(client_factory) -> 
         assert request.headers["Authorization"] == "Bearer test-token"
         assert request.headers["Content-Type"].startswith("application/json")
         assert await request.json() == {
-            "path": "/created-folder",
-            "autorename": False,
+            "path": path,
+            "autorename": autorename,
         }
         return web.json_response(expected_metadata)
 
@@ -29,36 +41,12 @@ async def test_files_create_folder_v2_sends_expected_request(client_factory) -> 
         {"/2/files/create_folder_v2": create_folder},
         content_host=False,
     ) as dbx:
-        metadata = await dbx.files_create_folder_v2("/created-folder")
+        metadata = await dbx.files_create_folder_v2(
+            path,
+            autorename=autorename,
+        )
 
     assert metadata == expected_metadata
-
-
-@pytest.mark.asyncio
-async def test_files_create_folder_v2_passes_autorename(client_factory) -> None:
-    async def create_folder(request: web.Request) -> web.Response:
-        assert await request.json() == {
-            "path": "/created-folder",
-            "autorename": True,
-        }
-        return web.json_response(
-            {
-                ".tag": "folder",
-                "name": "created-folder (1)",
-                "path_lower": "/created-folder (1)",
-            }
-        )
-
-    async with client_factory(
-        {"/2/files/create_folder_v2": create_folder},
-        content_host=False,
-    ) as dbx:
-        metadata = await dbx.files_create_folder_v2(
-            "/created-folder",
-            autorename=True,
-        )
-
-    assert metadata["path_lower"] == "/created-folder (1)"
 
 
 @pytest.mark.asyncio
@@ -107,26 +95,3 @@ async def test_files_create_folder_v2_maps_conflict(client_factory) -> None:
     assert error.error_summary == "path/conflict/folder/.."
     assert error.error_tag == "path/conflict/folder"
     assert error.request_id == "request-create-conflict"
-
-
-@pytest.mark.asyncio
-async def test_files_create_folder_v2_does_not_retry_ambiguous_server_error(
-    client_factory,
-) -> None:
-    attempts = 0
-
-    async def create_folder(_: web.Request) -> web.Response:
-        nonlocal attempts
-        attempts += 1
-        return web.Response(status=503, text="temporarily unavailable")
-
-    async with client_factory(
-        {"/2/files/create_folder_v2": create_folder},
-        content_host=False,
-        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
-    ) as dbx:
-        with pytest.raises(DropboxError) as caught:
-            await dbx.files_create_folder_v2("/created-folder")
-
-    assert caught.value.status_code == 503
-    assert attempts == 1

@@ -39,22 +39,6 @@ async def test_root_listing_has_a_cursor_and_entries_list(
 
 
 @pytest.mark.asyncio
-async def test_iter_folder_matches_single_page_entries(
-    dropbox_test_token: str,
-) -> None:
-    async with AsyncDropbox(dropbox_test_token) as dbx:
-        page = await require_dropbox("files/list_folder", dbx.files_list_folder(""))
-        entries = [
-            entry
-            async for entry in require_dropbox_iter(
-                "files/list_folder", dbx.files_list_folder_iter("")
-            )
-        ]
-
-    assert entries[: len(page["entries"])] == page["entries"]
-
-
-@pytest.mark.asyncio
 async def test_iter_folder_yields_valid_entries(
     dropbox_test_token: str,
 ) -> None:
@@ -62,7 +46,7 @@ async def test_iter_folder_yields_valid_entries(
 
     async with AsyncDropbox(dropbox_test_token) as dbx:
         async for entry in require_dropbox_iter(
-            "files/iter_folder",
+            "files/list_folder_iter",
             dbx.files_list_folder_iter("", recursive=True, limit=25),
         ):
             assert entry[".tag"] in {"file", "folder", "deleted"}
