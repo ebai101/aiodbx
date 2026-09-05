@@ -125,6 +125,7 @@ await dbx.files_download_to_path(
 | `files_create_folder_v2()` | `/2/files/create_folder_v2` |
 | `files_delete_v2()` | `/2/files/delete_v2` |
 
+
 ## Helper functions
 
 | Method | Behavior |
@@ -132,3 +133,18 @@ await dbx.files_download_to_path(
 | `files_list_folder_iter()` | Iterates through all pages from `files_list_folder()` |
 | `files_download_to_path()` | Streams a Dropbox file to a local path via AnyIO and atomically replaces the destination after success |
 
+
+## Unwrapped JSON-RPC endpoints
+
+`AsyncDropbox.rpc()` provides access to Dropbox JSON-RPC endpoints that do not yet have a first-class `aiodbx` method:
+
+```python
+result = await dbx.rpc(
+    "/2/users/get_space_usage",
+    {},
+)
+```
+
+`rpc()` sends a JSON-object payload to `api.dropboxapi.com` and returns a raw JSON-object response. It uses the same token, timeouts, retry policy, and exception mapping as named client methods.
+
+It does not support Dropbox content-upload, content-download, or long-poll endpoints. Those endpoint types use different wire formats and should be accessed through dedicated methods.

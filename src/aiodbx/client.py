@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
@@ -128,6 +128,41 @@ class AsyncDropbox:
         await self.aclose()
 
     # Direct Dropbox endpoint wrappers
+
+    async def rpc(
+        self,
+        endpoint: str,
+        arg: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Call an unstructured Dropbox JSON-RPC endpoint.
+
+        This escape hatch supports Dropbox's JSON-RPC-style API endpoints on
+        ``api.dropboxapi.com``. It applies the same authorization, timeout,
+        retry, and error-handling behavior as named ``aiodbx`` methods.
+
+        Args:
+            endpoint: Absolute Dropbox API v2 endpoint path, for example
+                ``"/2/files/move_v2"``.
+            arg: JSON-object request payload for the endpoint.
+
+        Returns:
+            The decoded Dropbox JSON-object response.
+
+        Raises:
+            RuntimeError: If the client has not been started.
+            ValueError: If ``endpoint`` is not an API v2 absolute path.
+            DropboxError: If Dropbox rejects the request or returns an
+                unexpected response.
+
+        This method does not support content-upload, content-download, or
+        long-poll endpoints. Use direct endpoint wrappers for those categories.
+        """
+        self._validate_rpc_endpoint(endpoint)
+
+        if not isinstance(arg, Mapping):
+            raise TypeError("arg must be a mapping representing a JSON object.")
+
+        return await self._require_transport().rpc(endpoint, arg)
 
     async def users_get_current_account(self) -> dict[str, Any]:
         """Call Dropbox's ``/2/users/get_current_account`` endpoint."""
@@ -274,9 +309,24 @@ class AsyncDropbox:
         assert self._files is not None
         return self._files
 
+    def _require_transport(self) -> DropboxTransport:
+        self._require_started()
+        assert self._transport is not None
+        return self._transport
+
     def _require_started(self) -> None:
         if self._transport is None:
             raise RuntimeError(
                 "Client is not started. Use 'async with AsyncDropbox(...) as dbx' "
                 "or call 'await dbx.start()' before making requests."
             )
+
+    @staticmethod
+    def _validate_rpc_endpoint(endpoint: str) -> None:
+        if not endpoint.startswith("/2/"):
+            raise ValueError(
+                "endpoint must be an absolute Dropbox API v2 path starting with '/2/'."
+            )
+
+        if endpoint.endswith("/"):
+            raise ValueError("endpoint must not end with '/'.")
