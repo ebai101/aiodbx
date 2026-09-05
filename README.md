@@ -2,7 +2,7 @@
 
 An asyncio-native Dropbox API v2 client for Python. `aiodbx` follows the naming pattern of the official Dropbox Python SDK, while providing an awaitable API with streaming file downloads.
 
-This library is in very early development. The current release implements a small number of file API operations.
+This library is in very early development. The current release implements a small number of file API operations, plus a generic RPC method for calling endpoints that are not implemented yet.
 
 ## Requirements
 
@@ -19,8 +19,7 @@ Set an access token in your environment:
 export AIODBX_ACCESS_TOKEN='your-access-token'
 ```
 
-Upload bytes, download the file, and verify that Dropbox reports the expected
-content hash:
+Upload bytes, download the file, and verify that Dropbox reports the expected content hash:
 
 ```python
 from __future__ import annotations
@@ -77,9 +76,7 @@ asyncio.run(main())
 
 ## Download a file
 
-`files_download()` is a direct wrapper for Dropbox's `/2/files/download`
-endpoint. It returns an async context manager so the HTTP response is always
-closed correctly.
+`files_download()` is a direct wrapper for Dropbox's `/2/files/download` endpoint. It returns an async context manager so the HTTP response is always closed correctly.
 
 ```python
 from __future__ import annotations
@@ -103,7 +100,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-For a safe local-file convenience, prefer:
+In most use cases, you'll want to save to a file:
 
 ```python
 await dbx.files_download_to_path(
@@ -111,6 +108,8 @@ await dbx.files_download_to_path(
     "latest.csv",
 )
 ```
+
+This will download the file to a temp path and atomically replace the destination on success.
 
 ## Implemented endpoints
 
@@ -131,10 +130,10 @@ await dbx.files_download_to_path(
 | Method | Behavior |
 |---|---|
 | `files_list_folder_iter()` | Iterates through all pages from `files_list_folder()` |
-| `files_download_to_path()` | Streams a Dropbox file to a local path via AnyIO and atomically replaces the destination after success |
+| `files_download_to_path()` | Streams a Dropbox file to a local path | 
 
 
-## Unwrapped JSON-RPC endpoints
+## Requesting unimplemented endpoints
 
 `AsyncDropbox.rpc()` provides access to Dropbox JSON-RPC endpoints that do not yet have a first-class `aiodbx` method:
 
