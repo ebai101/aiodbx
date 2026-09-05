@@ -6,7 +6,7 @@ import pytest
 
 from aiodbx import DropboxError
 
-from .helpers import require_dropbox_iter
+from ..helpers.integration import require_dropbox_iter
 
 
 async def yields_two() -> AsyncIterator[int]:

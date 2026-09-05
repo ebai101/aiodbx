@@ -6,6 +6,7 @@ import pytest
 
 TOKEN_ENV = "AIODBX_TEST_ACCESS_TOKEN"
 TEST_FOLDER_PATH_ENV = "AIODBX_TEST_FOLDER_PATH"
+TEST_DOWNLOAD_FILE_PATH_ENV = "AIODBX_TEST_DOWNLOAD_FILE_PATH"
 
 
 @pytest.fixture(scope="session")
@@ -34,5 +35,16 @@ def dropbox_test_folder_path() -> str:
     if path.endswith("/"):
         raise pytest.UsageError(
             f"{TEST_FOLDER_PATH_ENV} must not end with '/'; got {path!r}."
+        )
+    return path
+
+
+@pytest.fixture(scope="session")
+def dropbox_test_download_file_path() -> str:
+    path = os.environ.get(TEST_DOWNLOAD_FILE_PATH_ENV)
+    if not path:
+        pytest.skip(
+            f"{TEST_DOWNLOAD_FILE_PATH_ENV} \
+            is not set; skipping Dropbo download integration tests."
         )
     return path

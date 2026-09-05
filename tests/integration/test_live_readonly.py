@@ -4,7 +4,7 @@ import pytest
 
 from aiodbx import AsyncDropbox
 
-from .helpers import require_dropbox, require_dropbox_iter
+from ..helpers.integration import require_dropbox, require_dropbox_iter
 
 pytestmark = pytest.mark.integration
 

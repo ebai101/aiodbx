@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
-from aiodbx.paths import validate_non_root_path
-
+from .downloads import DownloadResponse
 from .errors import DropboxProtocolError
+from .filesystem import (
+    LocalPath,
+    ensure_destination_available,
+    write_download_atomically,
+)
+from .paths import validate_non_root_path
 from .transport import DropboxTransport
 
 
@@ -104,3 +110,57 @@ class FilesNamespace:
                 )
 
             page = await self.list_folder_continue(cursor)
+
+    @asynccontextmanager
+    async def download(
+        self,
+        path: str,
+    ) -> AsyncIterator[DownloadResponse]:
+        """Stream a Dropbox file download.
+
+        The response stream must be consumed within the context manager.
+
+        Example:
+            async with dbx.files.download("/report.csv") as response:
+                async for chunk in response.iter_bytes():
+                    ...
+        """
+        validate_non_root_path(path)
+
+        async with self._transport.content_download(
+            "/2/files/download",
+            {"path": path},
+        ) as response:
+            yield response
+
+    async def download_to_path(
+        self,
+        path: str,
+        destination: LocalPath,
+        *,
+        chunk_size: int = 1024 * 1024,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Download a Dropbox file to a local destination atomically.
+
+        The method validates that a non-overwritable local destination does not
+        already exist before opening the remote Dropbox response. It then streams
+        to a sibling temporary file and atomically replaces the destination only
+        after transfer completion.
+
+        Returns:
+            File metadata supplied by Dropbox in ``Dropbox-API-Result``.
+        """
+        final_path = await ensure_destination_available(
+            destination,
+            overwrite=overwrite,
+        )
+
+        async with self.download(path) as response:
+            await write_download_atomically(
+                response,
+                final_path,
+                chunk_size=chunk_size,
+                overwrite=overwrite,
+            )
+            return response.metadata

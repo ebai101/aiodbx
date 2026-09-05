@@ -15,7 +15,7 @@ from aiodbx import (
 )
 from aiodbx.hosts import EndpointHosts
 
-from .helpers import make_app
+from .helpers.local import make_app
 
 
 @pytest.mark.asyncio

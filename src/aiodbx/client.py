@@ -5,9 +5,8 @@ from typing import Self
 
 import aiohttp
 
-from aiodbx.hosts import EndpointHosts
-
 from .files import FilesNamespace
+from .hosts import EndpointHosts
 from .retry import RetryPolicy
 from .transport import DropboxTransport
 from .users import UsersNamespace

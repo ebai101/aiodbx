@@ -2,22 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from typing import Any
 
 import aiohttp
 
-from aiodbx.hosts import EndpointHosts
-
+from .downloads import DownloadResponse
 from .errors import (
     DropboxAuthenticationError,
     DropboxConflictError,
     DropboxError,
     DropboxNotFoundError,
     DropboxPermissionError,
+    DropboxProtocolError,
     DropboxRateLimitError,
     DropboxTransportError,
 )
+from .hosts import EndpointHosts
 from .retry import RetryPolicy
 
 
@@ -52,6 +54,28 @@ class DropboxTransport:
             json_body=arg,
         )
 
+    @asynccontextmanager
+    async def content_download(
+        self,
+        path: str,
+        arg: Mapping[str, Any],
+    ) -> AsyncIterator[DownloadResponse]:
+        """Open a Dropbox content-download response.
+
+        The caller must consume the returned stream inside the context manager.
+        """
+        if not path.startswith("/"):
+            raise ValueError("Dropbox endpoint paths must start with '/'.")
+
+        headers = self._content_headers(arg)
+
+        async with self._request_stream(
+            url=f"{self._hosts.content}{path}",
+            headers=headers,
+        ) as response:
+            metadata = await self._read_download_metadata(response)
+            yield DownloadResponse(metadata=metadata, _response=response)
+
     async def _request_json(
         self,
         *,
@@ -59,10 +83,7 @@ class DropboxTransport:
         headers: Mapping[str, str],
         json_body: Mapping[str, Any],
     ) -> dict[str, Any]:
-        request_headers = {
-            "Authorization": f"Bearer {self._access_token}",
-            **headers,
-        }
+        request_headers = self._authorization_headers() | dict(headers)
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
             try:
@@ -100,6 +121,99 @@ class DropboxTransport:
             raise error
 
         raise AssertionError("Retry loop exited unexpectedly.")
+
+    @asynccontextmanager
+    async def _request_stream(
+        self,
+        *,
+        url: str,
+        headers: Mapping[str, str],
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        for attempt in range(1, self._retry_policy.max_attempts + 1):
+            response: aiohttp.ClientResponse | None = None
+
+            try:
+                response = await self._session.post(url, headers=headers)
+
+                if 200 <= response.status < 300:
+                    try:
+                        yield response
+                    finally:
+                        response.close()
+                    return
+
+                error = await self._build_error(response)
+                response.close()
+            except asyncio.CancelledError:
+                if response is not None:
+                    response.close()
+                raise
+            except (aiohttp.ClientError, TimeoutError) as exc:
+                if response is not None:
+                    response.close()
+
+                if attempt >= self._retry_policy.max_attempts:
+                    raise DropboxTransportError(
+                        message=self._transport_message(exc)
+                    ) from exc
+
+                await asyncio.sleep(self._retry_policy.delay_for_attempt(attempt))
+                continue
+
+            if (
+                self._retry_policy.should_retry_status(error.status_code or 0)
+                and attempt < self._retry_policy.max_attempts
+            ):
+                delay = self._retry_policy.delay_for_attempt(
+                    attempt,
+                    retry_after=error.retry_after,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            raise error
+
+        raise AssertionError("Retry loop exited unexpectedly.")
+
+    async def _read_download_metadata(
+        self,
+        response: aiohttp.ClientResponse,
+    ) -> dict[str, Any]:
+        raw_metadata = response.headers.get("Dropbox-API-Result")
+
+        if raw_metadata is None:
+            raise DropboxProtocolError(
+                message=(
+                    "Dropbox content-download response is missing the "
+                    "'Dropbox-API-Result' header."
+                ),
+                status_code=response.status,
+                request_id=self._request_id(response),
+            )
+
+        try:
+            metadata = json.loads(raw_metadata)
+        except json.JSONDecodeError as exc:
+            raise DropboxProtocolError(
+                message=(
+                    "Dropbox content-download response has an invalid "
+                    "'Dropbox-API-Result' header."
+                ),
+                status_code=response.status,
+                request_id=self._request_id(response),
+            ) from exc
+
+        if not isinstance(metadata, dict):
+            raise DropboxProtocolError(
+                message=(
+                    "Dropbox content-download response has a non-object "
+                    "'Dropbox-API-Result' value."
+                ),
+                status_code=response.status,
+                request_id=self._request_id(response),
+            )
+
+        return metadata
 
     async def _read_json(
         self,
@@ -158,6 +272,18 @@ class DropboxTransport:
         if response.status == 429:
             return DropboxRateLimitError(**kwargs)
         return DropboxError(**kwargs)
+
+    def _content_headers(self, arg: Mapping[str, Any]) -> dict[str, str]:
+        headers = self._authorization_headers()
+        headers["Dropbox-API-Arg"] = json.dumps(
+            arg,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return headers
+
+    def _authorization_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._access_token}"}
 
     @staticmethod
     def _parse_object_or_none(body: str) -> dict[str, Any] | None:
