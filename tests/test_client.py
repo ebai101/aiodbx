@@ -18,6 +18,17 @@ async def test_rejects_invalid_configuration() -> None:
 
 
 @pytest.mark.asyncio
+async def test_endpoint_calls_require_started_client() -> None:
+    dbx = AsyncDropbox("token")
+
+    with pytest.raises(RuntimeError, match="not started"):
+        await dbx.users_get_current_account()
+
+    with pytest.raises(RuntimeError, match="not started"):
+        await dbx.files_list_folder()
+
+
+@pytest.mark.asyncio
 async def test_start_and_close_are_idempotent() -> None:
     dbx = AsyncDropbox("token")
 
