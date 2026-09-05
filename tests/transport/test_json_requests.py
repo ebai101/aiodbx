@@ -14,8 +14,7 @@ from aiodbx import (
     RetryPolicy,
 )
 from aiodbx.hosts import EndpointHosts
-
-from .helpers.local import make_app
+from tests.helpers.http import make_app
 
 
 @pytest.mark.asyncio

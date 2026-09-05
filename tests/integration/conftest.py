@@ -7,8 +7,7 @@ import pytest
 import pytest_asyncio
 
 from aiodbx import AsyncDropbox, DropboxError
-
-from ..helpers.integration import test_run_root
+from tests.helpers.integration import test_run_root
 
 TOKEN_ENV = "AIODBX_TEST_ACCESS_TOKEN"
 TEST_FOLDER_PATH_ENV = "AIODBX_TEST_FOLDER_PATH"

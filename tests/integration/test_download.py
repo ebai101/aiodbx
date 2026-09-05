@@ -2,9 +2,8 @@ import pytest
 from anyio import Path
 
 from aiodbx import AsyncDropbox
-
-from ..helpers.content_hash import dropbox_content_hash
-from ..helpers.integration import require_dropbox
+from tests.helpers.content_hash import dropbox_content_hash
+from tests.helpers.integration import require_dropbox
 
 pytestmark = pytest.mark.integration
 

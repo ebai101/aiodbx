@@ -3,9 +3,8 @@ from __future__ import annotations
 import pytest
 
 from aiodbx import AsyncDropbox
-
-from ..helpers.content_hash import DropboxContentHasher
-from ..helpers.integration import require_dropbox
+from tests.helpers.content_hash import DropboxContentHasher
+from tests.helpers.integration import require_dropbox
 
 pytestmark = [pytest.mark.integration, pytest.mark.live_write]
 
