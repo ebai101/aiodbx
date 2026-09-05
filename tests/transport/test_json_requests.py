@@ -119,11 +119,8 @@ async def test_rate_limit_exhaustion_exposes_retry_after(client_factory) -> None
         content_host=False,
         retry_policy=RetryPolicy(max_attempts=1),
     ) as dbx:
-        transport = dbx._transport
-        assert transport is not None
-
         with pytest.raises(DropboxRateLimitError) as caught:
-            await transport.rpc("/2/test", {})
+            await transport_for(dbx).rpc("/2/test", {})
 
     assert caught.value.retry_after == 0.0
 
