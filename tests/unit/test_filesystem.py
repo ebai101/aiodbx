@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -7,6 +8,21 @@ import pytest
 from anyio import Path as AsyncPath
 
 from aiodbx.filesystem import write_download_atomically
+
+
+class BlockingDownload:
+    def __init__(self, first_chunk_written: asyncio.Event) -> None:
+        self._first_chunk_written = first_chunk_written
+
+    async def iter_bytes(
+        self,
+        *,
+        chunk_size: int,
+    ) -> AsyncIterator[bytes]:
+        assert chunk_size > 0
+        yield b"first chunk"
+        self._first_chunk_written.set()
+        await asyncio.Event().wait()
 
 
 class FailingDownload:
@@ -62,3 +78,31 @@ async def test_write_download_atomically_rejects_invalid_chunk_size(
             chunk_size=0,
             overwrite=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_write_download_atomically_removes_partial_file_on_cancellation(
+    tmp_path: Path,
+) -> None:
+    destination = AsyncPath(tmp_path / "destination.bin")
+    first_chunk_written = asyncio.Event()
+
+    task = asyncio.create_task(
+        write_download_atomically(
+            BlockingDownload(first_chunk_written),  # ty: ignore[invalid-argument-type]
+            destination,
+            chunk_size=1024,
+            overwrite=False,
+        )
+    )
+    await first_chunk_written.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not await destination.exists()
+    partial_files = [
+        path async for path in AsyncPath(tmp_path).glob(".destination.bin.*.partial")
+    ]
+    assert partial_files == []
