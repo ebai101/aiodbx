@@ -20,7 +20,7 @@ async def test_download_matches_dropbox_content_hash(
     async with AsyncDropbox(dropbox_test_token) as dbx:
         metadata = await require_dropbox(
             "files/download",
-            dbx.files.download_to_path(
+            dbx.files_download_to_path(
                 dropbox_test_download_file_path,
                 destination,
                 chunk_size=257 * 1024,

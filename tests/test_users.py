@@ -32,7 +32,7 @@ async def test_get_current_account_sends_authorized_json_rpc_request(
         "test-token",
         _hosts=hosts,
     ) as dbx:
-        account = await dbx.users.get_current_account()
+        account = await dbx.users_get_current_account()
 
     assert account == {"account_id": "dbid:test"}
     assert len(requests) == 1

@@ -33,7 +33,7 @@ async def test_get_metadata_sends_expected_arguments(aiohttp_server) -> None:
         "test-token",
         _hosts=hosts,
     ) as dbx:
-        response = await dbx.files.get_metadata("/report.txt")
+        response = await dbx.files_get_metadata("/report.txt")
 
     assert response == {
         ".tag": "file",
@@ -85,7 +85,7 @@ async def test_iter_folder_follows_cursor(aiohttp_server) -> None:
         "test-token",
         _hosts=hosts,
     ) as dbx:
-        entries = [entry async for entry in dbx.files.iter_folder("/")]
+        entries = [entry async for entry in dbx.files_list_folder_iter("/")]
 
     assert entries == [
         {".tag": "file", "name": "first"},

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 
 import aiohttp
 
+from .downloads import DownloadResponse
 from .files import FilesNamespace
+from .filesystem import LocalPath
 from .hosts import EndpointHosts
 from .retry import RetryPolicy
 from .transport import DropboxTransport
@@ -41,8 +45,12 @@ class ClientConfig:
 class AsyncDropbox:
     """An asyncio-native Dropbox API v2 client.
 
-    The client owns an ``aiohttp.ClientSession``. Prefer using it as an async
-    context manager so its connection pool is reliably closed.
+    Endpoint wrappers use the official Dropbox Python SDK's flattened naming
+    style. For example, Dropbox's ``/2/files/list_folder`` endpoint is
+    available as :meth:`files_list_folder`.
+
+    The client owns an ``aiohttp.ClientSession``. Prefer an async context
+    manager so its connection pool is reliably closed.
     """
 
     def __init__(
@@ -59,40 +67,14 @@ class AsyncDropbox:
         self._access_token = access_token
         self._config = config or ClientConfig()
         self._retry_policy = retry_policy or RetryPolicy()
+        self._hosts = _hosts or EndpointHosts()
         self._session: aiohttp.ClientSession | None = None
         self._transport: DropboxTransport | None = None
         self._users: UsersNamespace | None = None
         self._files: FilesNamespace | None = None
-        self._hosts = _hosts or EndpointHosts()
-
-    @property
-    def users(self) -> UsersNamespace:
-        """The Dropbox users namespace.
-
-        Raises:
-            RuntimeError: If the client has not been started.
-        """
-        self._require_started()
-        assert self._users is not None
-        return self._users
-
-    @property
-    def files(self) -> FilesNamespace:
-        """The Dropbox files namespace.
-
-        Raises:
-            RuntimeError: If the client has not been started.
-        """
-        self._require_started()
-        assert self._files is not None
-        return self._files
 
     async def start(self) -> None:
-        """Open the underlying HTTP session.
-
-        This method is idempotent. Calling it after the client is already
-        started does nothing.
-        """
+        """Open the underlying HTTP session if it is not already open."""
         if self._session is not None:
             return
 
@@ -127,8 +109,8 @@ class AsyncDropbox:
     async def aclose(self) -> None:
         """Close the underlying HTTP session.
 
-        This method is idempotent. The client may be started again after it has
-        been closed.
+        This method is idempotent. The client can be started again after it is
+        closed.
         """
         if self._session is not None:
             await self._session.close()
@@ -144,6 +126,103 @@ class AsyncDropbox:
 
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
+
+    # Direct Dropbox endpoint wrappers
+
+    async def users_get_current_account(self) -> dict[str, Any]:
+        """Call Dropbox's ``/2/users/get_current_account`` endpoint."""
+        return await self._require_users().get_current_account()
+
+    async def files_get_metadata(
+        self,
+        path: str,
+        *,
+        include_media_info: bool = False,
+        include_deleted: bool = False,
+        include_has_explicit_shared_members: bool = False,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/get_metadata`` endpoint."""
+        return await self._require_files().get_metadata(
+            path,
+            include_media_info=include_media_info,
+            include_deleted=include_deleted,
+            include_has_explicit_shared_members=include_has_explicit_shared_members,
+        )
+
+    async def files_list_folder(
+        self,
+        path: str = "",
+        *,
+        recursive: bool = False,
+        include_media_info: bool = False,
+        include_deleted: bool = False,
+        include_has_explicit_shared_members: bool = False,
+        include_mounted_folders: bool = True,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/list_folder`` endpoint."""
+        return await self._require_files().list_folder(
+            path,
+            recursive=recursive,
+            include_media_info=include_media_info,
+            include_deleted=include_deleted,
+            include_has_explicit_shared_members=include_has_explicit_shared_members,
+            include_mounted_folders=include_mounted_folders,
+            limit=limit,
+        )
+
+    async def files_list_folder_continue(self, cursor: str) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/list_folder/continue`` endpoint."""
+        return await self._require_files().list_folder_continue(cursor)
+
+    @asynccontextmanager
+    async def files_download(
+        self,
+        path: str,
+    ) -> AsyncIterator[DownloadResponse]:
+        """Call Dropbox's ``/2/files/download`` endpoint.
+
+        Consume the result inside the returned async context manager.
+        """
+        async with self._require_files().download(path) as response:
+            yield response
+
+    # Convenience helpers
+
+    async def files_list_folder_iter(
+        self,
+        path: str = "",
+        **kwargs: Any,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield every result from ``files_list_folder`` pagination."""
+        async for entry in self._require_files().iter_folder(path, **kwargs):
+            yield entry
+
+    async def files_download_to_path(
+        self,
+        path: str,
+        destination: LocalPath,
+        *,
+        chunk_size: int = 1024 * 1024,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Download a Dropbox file to a local path atomically."""
+        return await self._require_files().download_to_path(
+            path,
+            destination,
+            chunk_size=chunk_size,
+            overwrite=overwrite,
+        )
+
+    def _require_users(self) -> UsersNamespace:
+        self._require_started()
+        assert self._users is not None
+        return self._users
+
+    def _require_files(self) -> FilesNamespace:
+        self._require_started()
+        assert self._files is not None
+        return self._files
 
     def _require_started(self) -> None:
         if self._transport is None:

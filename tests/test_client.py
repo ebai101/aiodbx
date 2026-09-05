@@ -18,17 +18,6 @@ async def test_rejects_invalid_configuration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_requires_start_before_namespace_access() -> None:
-    dbx = AsyncDropbox("token")
-
-    with pytest.raises(RuntimeError, match="not started"):
-        _ = dbx.users
-
-    with pytest.raises(RuntimeError, match="not started"):
-        _ = dbx.files
-
-
-@pytest.mark.asyncio
 async def test_start_and_close_are_idempotent() -> None:
     dbx = AsyncDropbox("token")
 

@@ -46,7 +46,7 @@ async def test_download_to_path_streams_content_and_returns_metadata(
     destination = tmp_path / "fixture.bin"
 
     async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
-        result = await dbx.files.download_to_path(
+        result = await dbx.files_download_to_path(
             "/fixture.bin",
             destination,
             chunk_size=3,
@@ -89,7 +89,7 @@ async def test_download_to_path_refuses_existing_destination(
 
     async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         with pytest.raises(FileExistsError) as caught:
-            await dbx.files.download_to_path("/fixture.bin", destination)
+            await dbx.files_download_to_path("/fixture.bin", destination)
 
     assert str(caught.value) == str(destination)
     assert destination.read_bytes() == b"existing"
@@ -124,7 +124,7 @@ async def test_download_to_path_replaces_existing_destination_when_allowed(
     destination.write_bytes(b"old content")
 
     async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
-        result = await dbx.files.download_to_path(
+        result = await dbx.files_download_to_path(
             "/fixture.bin",
             destination,
             overwrite=True,
@@ -145,7 +145,7 @@ async def test_download_rejects_missing_metadata_header(aiohttp_server) -> None:
 
     async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
         with pytest.raises(DropboxProtocolError, match="Dropbox-API-Result"):
-            async with dbx.files.download("/fixture.bin"):
+            async with dbx.files_download("/fixture.bin"):
                 pass
 
 
@@ -153,5 +153,5 @@ async def test_download_rejects_missing_metadata_header(aiohttp_server) -> None:
 async def test_download_rejects_root_path() -> None:
     async with AsyncDropbox("test-token") as dbx:
         with pytest.raises(ValueError, match="non-root"):
-            async with dbx.files.download(""):
+            async with dbx.files_download(""):
                 pass

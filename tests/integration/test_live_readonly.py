@@ -15,7 +15,7 @@ async def test_get_current_account_returns_an_account_id(
 ) -> None:
     async with AsyncDropbox(dropbox_test_token) as dbx:
         account = await require_dropbox(
-            "users/get_current_account", dbx.users.get_current_account()
+            "users/get_current_account", dbx.users_get_current_account()
         )
 
     assert isinstance(account.get("account_id"), str)
@@ -30,7 +30,7 @@ async def test_get_metadata_for_configured_folder(
 ) -> None:
     async with AsyncDropbox(dropbox_test_token) as dbx:
         metadata = await require_dropbox(
-            "files/get_metadata", dbx.files.get_metadata(dropbox_test_folder_path)
+            "files/get_metadata", dbx.files_get_metadata(dropbox_test_folder_path)
         )
 
     assert metadata[".tag"] == "folder"
@@ -43,7 +43,7 @@ async def test_root_listing_has_a_cursor_and_entries_list(
     dropbox_test_token: str,
 ) -> None:
     async with AsyncDropbox(dropbox_test_token) as dbx:
-        page = await require_dropbox("files/list_folder", dbx.files.list_folder(""))
+        page = await require_dropbox("files/list_folder", dbx.files_list_folder(""))
 
     assert isinstance(page.get("entries"), list)
     assert isinstance(page.get("cursor"), str)
@@ -55,11 +55,11 @@ async def test_iter_folder_matches_single_page_entries(
     dropbox_test_token: str,
 ) -> None:
     async with AsyncDropbox(dropbox_test_token) as dbx:
-        page = await require_dropbox("files/list_folder", dbx.files.list_folder(""))
+        page = await require_dropbox("files/list_folder", dbx.files_list_folder(""))
         entries = [
             entry
             async for entry in require_dropbox_iter(
-                "files/list_folder", dbx.files.iter_folder("")
+                "files/list_folder", dbx.files_list_folder_iter("")
             )
         ]
 
@@ -75,7 +75,7 @@ async def test_iter_folder_yields_valid_entries(
     async with AsyncDropbox(dropbox_test_token) as dbx:
         async for entry in require_dropbox_iter(
             "files/iter_folder",
-            dbx.files.iter_folder("", recursive=True, limit=25),
+            dbx.files_list_folder_iter("", recursive=True, limit=25),
         ):
             assert entry[".tag"] in {"file", "folder", "deleted"}
             seen += 1
