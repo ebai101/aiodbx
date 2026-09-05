@@ -3,3 +3,4 @@ venv/
 /repomix-output.xml
 /.env
 /.DS_Store
+/.coverage

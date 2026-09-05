@@ -16,11 +16,16 @@ Homepage = "https://github.com/ebai101/aiodbx"
 Repository = "https://github.com/ebai101/aiodbx"
 Issues = "https://github.com/ebai101/aiodbx/issues"
 
+[project.scripts]
+tests = "tests.runner:main"
+
 [dependency-groups]
 dev = [
+  "coverage>=7.16.0",
   "pytest>=8",
   "pytest-aiohttp>=1.1.1",
   "pytest-asyncio>=0.24",
+  "pytest-cov>=7.1.0",
   "ruff>=0.16.6",
   "ty>=0.0.78",
 ]
@@ -32,6 +37,7 @@ markers = [
   "integration: calls the real Dropbox API. requires AIODBX_TEST_ACCESS_TOKEN",
   "live_write: creates and deletes state in the Dropbox test app folder",
 ]
+addopts = ["--cov=aiodbx", "--cov-report=term-missing"]
 
 [tool.ruff]
 target-version = "py311"
@@ -45,3 +51,18 @@ known-first-party = ["aiodbx"]
 
 [tool.ty.environment]
 python-version = "3.11"
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["aiodbx"]
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise AssertionError",
+  "raise NotImplementedError",
+]
