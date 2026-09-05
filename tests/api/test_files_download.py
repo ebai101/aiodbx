@@ -6,7 +6,7 @@ import pytest
 from aiohttp import web
 from anyio import Path
 
-from aiodbx import AsyncDropbox, DropboxProtocolError
+from aiodbx import AsyncDropbox, DropboxProtocolError, RetryPolicy
 
 
 @pytest.mark.asyncio
@@ -152,3 +152,45 @@ async def test_files_download_rejects_missing_metadata_header(client_factory) ->
         with pytest.raises(DropboxProtocolError, match="Dropbox-API-Result"):
             async with dbx.files_download("/fixture.bin"):
                 pass
+
+
+@pytest.mark.asyncio
+async def test_files_download_retries_before_a_successful_response(
+    client_factory,
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+    metadata = {
+        ".tag": "file",
+        "name": "fixture.bin",
+        "path_display": "/fixture.bin",
+        "size": 5,
+    }
+
+    async def download(request: web.Request) -> web.StreamResponse:
+        nonlocal attempts
+        attempts += 1
+
+        if attempts == 1:
+            return web.Response(status=503, text="temporarily unavailable")
+
+        response = web.StreamResponse(
+            headers={"Dropbox-API-Result": json.dumps(metadata)},
+        )
+        await response.prepare(request)
+        await response.write(b"hello")
+        await response.write_eof()
+        return response
+
+    destination = tmp_path / "fixture.bin"
+
+    async with client_factory(
+        {"/2/files/download": download},
+        api_host=False,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+    ) as dbx:
+        result = await dbx.files_download_to_path("/fixture.bin", destination)
+
+    assert result == metadata
+    assert attempts == 2
+    assert destination.read_bytes() == b"hello"
