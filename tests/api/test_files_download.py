@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from aiohttp import web
+from anyio import Path as AsyncPath
 
 from aiodbx import AsyncDropbox, DropboxProtocolError, RetryPolicy
 
@@ -45,7 +46,7 @@ async def test_files_download_to_path_streams_content_and_returns_metadata(
         await response.write_eof()
         return response
 
-    destination = tmp_path / "fixture.bin"
+    destination = AsyncPath(tmp_path) / "fixture.bin"
 
     async with client_factory(
         {"/2/files/download": download},
@@ -58,8 +59,8 @@ async def test_files_download_to_path_streams_content_and_returns_metadata(
         )
 
     assert result == metadata
-    assert destination.read_bytes() == b"hello world"
-    assert not any(tmp_path.glob(".*.partial"))  # ruff: ignore[ASYNC240]
+    assert await destination.read_bytes() == b"hello world"
+    assert [path async for path in AsyncPath(tmp_path).glob(".*.partial")] == []
 
 
 @pytest.mark.asyncio
@@ -86,8 +87,8 @@ async def test_files_download_to_path_refuses_existing_destination(
             },
         )
 
-    destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"existing")
+    destination = AsyncPath(tmp_path) / "existing.bin"
+    await destination.write_bytes(b"existing")
 
     async with client_factory(
         {"/2/files/download": download},
@@ -98,7 +99,7 @@ async def test_files_download_to_path_refuses_existing_destination(
 
     assert str(caught.value) == str(destination)
     assert request_count == 0
-    assert destination.read_bytes() == b"existing"
+    assert await destination.read_bytes() == b"existing"
 
 
 @pytest.mark.asyncio
@@ -122,8 +123,8 @@ async def test_files_download_to_path_replaces_existing_destination_when_allowed
             headers={"Dropbox-API-Result": json.dumps(metadata)},
         )
 
-    destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"old content")
+    destination = AsyncPath(tmp_path) / "existing.bin"
+    await destination.write_bytes(b"old content")
 
     async with client_factory(
         {"/2/files/download": download},
@@ -136,8 +137,8 @@ async def test_files_download_to_path_replaces_existing_destination_when_allowed
         )
 
     assert result == metadata
+    assert await destination.read_bytes() == b"hello world"
     assert request_count == 1
-    assert destination.read_bytes() == b"hello world"
 
 
 @pytest.mark.asyncio
