@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from aiohttp import web
-from anyio import Path
 
 from aiodbx import AsyncDropbox, DropboxProtocolError, RetryPolicy
 
@@ -59,7 +59,7 @@ async def test_files_download_to_path_streams_content_and_returns_metadata(
 
     assert result == metadata
     assert destination.read_bytes() == b"hello world"
-    assert not any(tmp_path.glob(".partial"))
+    assert not any(tmp_path.glob(".*.partial"))  # ruff: ignore[ASYNC240]
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_files_download_to_path_refuses_existing_destination(
         )
 
     destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"existing")  # ty: ignore[unused-awaitable]
+    destination.write_bytes(b"existing")
 
     async with client_factory(
         {"/2/files/download": download},
@@ -123,7 +123,7 @@ async def test_files_download_to_path_replaces_existing_destination_when_allowed
         )
 
     destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"old content")  # ty: ignore[unused-awaitable]
+    destination.write_bytes(b"old content")
 
     async with client_factory(
         {"/2/files/download": download},

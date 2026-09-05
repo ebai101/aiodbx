@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox, DropboxConflictError, DropboxError, RetryPolicy
+from aiodbx import AsyncDropbox, DropboxConflictError
 
 
 @pytest.mark.asyncio
