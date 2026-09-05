@@ -6,10 +6,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    """Retry behavior for transient Dropbox and transport failures.
+    """Backoff settings for retry-safe Dropbox transport operations.
 
-    ``max_attempts`` includes the initial request. For example, a value of four
-    permits one original request and at most three retries.
+    The transport applies this policy only when the caller explicitly marks an
+    operation retryable. ``max_attempts`` includes the initial request.
     """
 
     max_attempts: int = 4

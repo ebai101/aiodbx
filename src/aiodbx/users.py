@@ -13,4 +13,8 @@ class UsersNamespace:
 
     async def get_current_account(self) -> dict[str, Any]:
         """Return metadata for the account associated with this access token."""
-        return await self._transport.rpc("/2/users/get_current_account", {})
+        return await self._transport.rpc(
+            "/2/users/get_current_account",
+            {},
+            retryable=True,
+        )

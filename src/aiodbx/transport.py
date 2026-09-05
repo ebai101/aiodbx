@@ -45,6 +45,8 @@ class DropboxTransport:
         self,
         path: str,
         arg: Mapping[str, Any],
+        *,
+        retryable: bool = False,
     ) -> dict[str, Any]:
         """Make a JSON RPC request to the Dropbox API host."""
         if not path.startswith("/"):
@@ -54,6 +56,7 @@ class DropboxTransport:
             url=f"{self._hosts.api}{path}",
             headers={"Content-Type": "application/json"},
             json_body=arg,
+            retryable=retryable,
         )
 
     @asynccontextmanager
@@ -61,6 +64,8 @@ class DropboxTransport:
         self,
         path: str,
         arg: Mapping[str, Any],
+        *,
+        retryable: bool = False,
     ) -> AsyncIterator[DownloadResponse]:
         """Open a Dropbox content-download response.
 
@@ -74,6 +79,7 @@ class DropboxTransport:
         async with self._request_stream(
             url=f"{self._hosts.content}{path}",
             headers=headers,
+            retryable=retryable,
         ) as response:
             metadata = await self._read_download_metadata(response)
             yield DownloadResponse(metadata=metadata, _response=response)
@@ -84,6 +90,7 @@ class DropboxTransport:
         arg: Mapping[str, Any],
         *,
         data: ContentBody,
+        retryable: bool = False,
     ) -> dict[str, Any]:
         """Call a Dropbox content-upload endpoint and return its JSON result."""
         if not path.startswith("/"):
@@ -96,6 +103,7 @@ class DropboxTransport:
                 content_type="application/octet-stream",
             ),
             data=data,
+            retryable=retryable,
         )
 
     async def _request_json(
@@ -105,6 +113,7 @@ class DropboxTransport:
         headers: Mapping[str, str],
         json_body: Mapping[str, Any] | None = None,
         data: ContentBody | None = None,
+        retryable: bool,
     ) -> dict[str, Any]:
         if (json_body is None) == (data is None):
             raise ValueError("Pass exactly one of json_body or data.")
@@ -126,7 +135,7 @@ class DropboxTransport:
             except asyncio.CancelledError:
                 raise
             except (aiohttp.ClientError, TimeoutError) as exc:
-                if attempt >= self._retry_policy.max_attempts:
+                if not retryable or attempt >= self._retry_policy.max_attempts:
                     raise DropboxTransportError(
                         message=self._transport_message(exc)
                     ) from exc
@@ -135,7 +144,8 @@ class DropboxTransport:
                 continue
 
             if (
-                self._retry_policy.should_retry_status(error.status_code or 0)
+                retryable
+                and self._retry_policy.should_retry_status(error.status_code or 0)
                 and attempt < self._retry_policy.max_attempts
             ):
                 await asyncio.sleep(
@@ -156,6 +166,7 @@ class DropboxTransport:
         *,
         url: str,
         headers: Mapping[str, str],
+        retryable: bool,
     ) -> AsyncIterator[aiohttp.ClientResponse]:
         for attempt in range(1, self._retry_policy.max_attempts + 1):
             response: aiohttp.ClientResponse | None = None
@@ -180,7 +191,7 @@ class DropboxTransport:
                 if response is not None:
                     response.close()
 
-                if attempt >= self._retry_policy.max_attempts:
+                if not retryable or attempt >= self._retry_policy.max_attempts:
                     raise DropboxTransportError(
                         message=self._transport_message(exc)
                     ) from exc
@@ -189,7 +200,8 @@ class DropboxTransport:
                 continue
 
             if (
-                self._retry_policy.should_retry_status(error.status_code or 0)
+                retryable
+                and self._retry_policy.should_retry_status(error.status_code or 0)
                 and attempt < self._retry_policy.max_attempts
             ):
                 delay = self._retry_policy.delay_for_attempt(

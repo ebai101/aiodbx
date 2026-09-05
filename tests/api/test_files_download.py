@@ -59,7 +59,7 @@ async def test_files_download_to_path_streams_content_and_returns_metadata(
 
     assert result == metadata
     assert destination.read_bytes() == b"hello world"
-    assert not any(tmp_path.glob(".*.partial"))
+    assert not any(tmp_path.glob(".partial"))
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_files_download_to_path_refuses_existing_destination(
         )
 
     destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"existing")
+    destination.write_bytes(b"existing")  # ty: ignore[unused-awaitable]
 
     async with client_factory(
         {"/2/files/download": download},
@@ -97,8 +97,8 @@ async def test_files_download_to_path_refuses_existing_destination(
             await dbx.files_download_to_path("/fixture.bin", destination)
 
     assert str(caught.value) == str(destination)
-    assert destination.read_bytes() == b"existing"
     assert request_count == 0
+    assert destination.read_bytes() == b"existing"
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_files_download_to_path_replaces_existing_destination_when_allowed
         )
 
     destination = tmp_path / "existing.bin"
-    destination.write_bytes(b"old content")
+    destination.write_bytes(b"old content")  # ty: ignore[unused-awaitable]
 
     async with client_factory(
         {"/2/files/download": download},

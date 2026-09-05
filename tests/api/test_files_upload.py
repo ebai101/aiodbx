@@ -5,7 +5,7 @@ import json
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox
+from aiodbx import AsyncDropbox, DropboxError, RetryPolicy
 
 
 @pytest.mark.asyncio
@@ -65,3 +65,28 @@ async def test_files_upload_rejects_oversized_content(monkeypatch) -> None:
     async with AsyncDropbox("test-token") as dbx:
         with pytest.raises(ValueError, match="150 MiB"):
             await dbx.files_upload(b"1234", "/fixture.txt")
+
+
+@pytest.mark.asyncio
+async def test_files_upload_does_not_retry_ambiguous_server_error(
+    client_factory,
+) -> None:
+    attempts = 0
+    body = b"do not resend this upload"
+
+    async def upload(request: web.Request) -> web.Response:
+        nonlocal attempts
+        attempts += 1
+        assert await request.read() == body
+        return web.Response(status=503, text="temporarily unavailable")
+
+    async with client_factory(
+        {"/2/files/upload": upload},
+        api_host=False,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+    ) as dbx:
+        with pytest.raises(DropboxError) as caught:
+            await dbx.files_upload(body, "/fixture.txt", mode="overwrite")
+
+    assert caught.value.status_code == 503
+    assert attempts == 1

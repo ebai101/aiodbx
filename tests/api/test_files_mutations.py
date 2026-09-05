@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox, DropboxConflictError
+from aiodbx import AsyncDropbox, DropboxConflictError, DropboxError, RetryPolicy
 
 
 @pytest.mark.asyncio
@@ -107,3 +107,26 @@ async def test_files_create_folder_v2_maps_conflict(client_factory) -> None:
     assert error.error_summary == "path/conflict/folder/.."
     assert error.error_tag == "path/conflict/folder"
     assert error.request_id == "request-create-conflict"
+
+
+@pytest.mark.asyncio
+async def test_files_create_folder_v2_does_not_retry_ambiguous_server_error(
+    client_factory,
+) -> None:
+    attempts = 0
+
+    async def create_folder(_: web.Request) -> web.Response:
+        nonlocal attempts
+        attempts += 1
+        return web.Response(status=503, text="temporarily unavailable")
+
+    async with client_factory(
+        {"/2/files/create_folder_v2": create_folder},
+        content_host=False,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+    ) as dbx:
+        with pytest.raises(DropboxError) as caught:
+            await dbx.files_create_folder_v2("/created-folder")
+
+    assert caught.value.status_code == 503
+    assert attempts == 1

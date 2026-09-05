@@ -45,6 +45,7 @@ class FilesNamespace:
                     include_has_explicit_shared_members
                 ),
             },
+            retryable=True,
         )
 
     async def list_folder(
@@ -72,13 +73,12 @@ class FilesNamespace:
         if limit is not None:
             arg["limit"] = limit
 
-        return await self._transport.rpc("/2/files/list_folder", arg)
+        return await self._transport.rpc("/2/files/list_folder", arg, retryable=True)
 
     async def list_folder_continue(self, cursor: str) -> dict[str, Any]:
         """Return the next page from a ``list_folder`` cursor."""
         return await self._transport.rpc(
-            "/2/files/list_folder/continue",
-            {"cursor": cursor},
+            "/2/files/list_folder/continue", {"cursor": cursor}, retryable=True
         )
 
     async def iter_folder(
@@ -132,8 +132,7 @@ class FilesNamespace:
         validate_non_root_path(path)
 
         async with self._transport.content_download(
-            "/2/files/download",
-            {"path": path},
+            "/2/files/download", {"path": path}, retryable=True
         ) as response:
             yield response
 
