@@ -225,6 +225,18 @@ class AsyncDropbox:
             parent_rev=parent_rev,
         )
 
+    async def files_create_folder_v2(
+        self,
+        path: str,
+        *,
+        autorename: bool = False,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/create_folder_v2`` endpoint."""
+        return await self._require_files().create_folder_v2(
+            path,
+            autorename=autorename,
+        )
+
     # Convenience helpers
 
     async def files_list_folder_iter(

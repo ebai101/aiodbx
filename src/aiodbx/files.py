@@ -222,6 +222,23 @@ class FilesNamespace:
 
         return await self._transport.rpc("/2/files/delete_v2", arg)
 
+    async def create_folder_v2(
+        self,
+        path: str,
+        *,
+        autorename: bool = False,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/create_folder_v2`` endpoint."""
+        validate_non_root_path(path)
+
+        return await self._transport.rpc(
+            "/2/files/create_folder_v2",
+            {
+                "path": path,
+                "autorename": autorename,
+            },
+        )
+
 
 def _validate_content_bytes(f: ContentBytes) -> None:
     if not isinstance(f, ContentBytes):
