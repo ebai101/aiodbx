@@ -6,15 +6,10 @@ import pytest
 from aiohttp import web
 
 from aiodbx import AsyncDropbox
-from aiodbx.hosts import EndpointHosts
-
-from tests.helpers.http import make_app
 
 
 @pytest.mark.asyncio
-async def test_files_upload_sends_content_headers_and_body(
-    aiohttp_server,
-) -> None:
+async def test_files_upload_sends_content_headers_and_body(client_factory) -> None:
     body = b"hello from aiodbx\n"
     metadata = {
         ".tag": "file",
@@ -36,10 +31,10 @@ async def test_files_upload_sends_content_headers_and_body(
         assert await request.read() == body
         return web.json_response(metadata)
 
-    server = await aiohttp_server(make_app({"/2/files/upload": upload}))
-    hosts = EndpointHosts(content=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/upload": upload},
+        api_host=False,
+    ) as dbx:
         result = await dbx.files_upload(
             body,
             "/fixture.txt",

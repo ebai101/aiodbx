@@ -4,15 +4,10 @@ import pytest
 from aiohttp import web
 
 from aiodbx import AsyncDropbox, DropboxConflictError
-from aiodbx.hosts import EndpointHosts
-
-from tests.helpers.http import make_app
 
 
 @pytest.mark.asyncio
-async def test_files_create_folder_v2_sends_expected_request(
-    aiohttp_server,
-) -> None:
+async def test_files_create_folder_v2_sends_expected_request(client_factory) -> None:
     expected_metadata = {
         ".tag": "folder",
         "name": "created-folder",
@@ -30,21 +25,17 @@ async def test_files_create_folder_v2_sends_expected_request(
         }
         return web.json_response(expected_metadata)
 
-    server = await aiohttp_server(
-        make_app({"/2/files/create_folder_v2": create_folder})
-    )
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/create_folder_v2": create_folder},
+        content_host=False,
+    ) as dbx:
         metadata = await dbx.files_create_folder_v2("/created-folder")
 
     assert metadata == expected_metadata
 
 
 @pytest.mark.asyncio
-async def test_files_create_folder_v2_passes_autorename(
-    aiohttp_server,
-) -> None:
+async def test_files_create_folder_v2_passes_autorename(client_factory) -> None:
     async def create_folder(request: web.Request) -> web.Response:
         assert await request.json() == {
             "path": "/created-folder",
@@ -58,12 +49,10 @@ async def test_files_create_folder_v2_passes_autorename(
             }
         )
 
-    server = await aiohttp_server(
-        make_app({"/2/files/create_folder_v2": create_folder})
-    )
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/create_folder_v2": create_folder},
+        content_host=False,
+    ) as dbx:
         metadata = await dbx.files_create_folder_v2(
             "/created-folder",
             autorename=True,
@@ -89,9 +78,7 @@ async def test_files_create_folder_v2_rejects_invalid_path(path: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_files_create_folder_v2_maps_conflict(
-    aiohttp_server,
-) -> None:
+async def test_files_create_folder_v2_maps_conflict(client_factory) -> None:
     async def create_folder(_: web.Request) -> web.Response:
         return web.json_response(
             {
@@ -108,12 +95,10 @@ async def test_files_create_folder_v2_maps_conflict(
             headers={"X-Dropbox-Request-Id": "request-create-conflict"},
         )
 
-    server = await aiohttp_server(
-        make_app({"/2/files/create_folder_v2": create_folder})
-    )
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/create_folder_v2": create_folder},
+        content_host=False,
+    ) as dbx:
         with pytest.raises(DropboxConflictError) as caught:
             await dbx.files_create_folder_v2("/already-exists")
 

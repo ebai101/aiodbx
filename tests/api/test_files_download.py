@@ -6,15 +6,20 @@ import pytest
 from aiohttp import web
 from anyio import Path
 
-from aiodbx import DropboxProtocolError
-from aiodbx.client import AsyncDropbox
-from aiodbx.hosts import EndpointHosts
-from tests.helpers.http import make_app
+from aiodbx import AsyncDropbox, DropboxProtocolError
 
 
 @pytest.mark.asyncio
-async def test_download_to_path_streams_content_and_returns_metadata(
-    aiohttp_server,
+async def test_files_download_rejects_root_path() -> None:
+    async with AsyncDropbox("test-token") as dbx:
+        with pytest.raises(ValueError, match="non-root"):
+            async with dbx.files_download(""):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_files_download_to_path_streams_content_and_returns_metadata(
+    client_factory,
     tmp_path: Path,
 ) -> None:
     metadata = {
@@ -40,11 +45,12 @@ async def test_download_to_path_streams_content_and_returns_metadata(
         await response.write_eof()
         return response
 
-    server = await aiohttp_server(make_app({"/2/files/download": download}))
-    hosts = EndpointHosts(content=str(server.make_url("/")).rstrip("/"))
     destination = tmp_path / "fixture.bin"
 
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/download": download},
+        api_host=False,
+    ) as dbx:
         result = await dbx.files_download_to_path(
             "/fixture.bin",
             destination,
@@ -57,8 +63,8 @@ async def test_download_to_path_streams_content_and_returns_metadata(
 
 
 @pytest.mark.asyncio
-async def test_download_to_path_refuses_existing_destination(
-    aiohttp_server,
+async def test_files_download_to_path_refuses_existing_destination(
+    client_factory,
     tmp_path: Path,
 ) -> None:
     request_count = 0
@@ -67,26 +73,26 @@ async def test_download_to_path_refuses_existing_destination(
         nonlocal request_count
         request_count += 1
         return web.Response(
-            body=b"this response should never be requested",
+            body=b"request should not occur",
             headers={
                 "Dropbox-API-Result": json.dumps(
                     {
                         ".tag": "file",
                         "name": "fixture.bin",
                         "path_display": "/fixture.bin",
-                        "size": 37,
+                        "size": 24,
                     }
                 )
             },
         )
 
-    server = await aiohttp_server(make_app({"/2/files/download": download}))
-    hosts = EndpointHosts(content=str(server.make_url("/")).rstrip("/"))
-
     destination = tmp_path / "existing.bin"
     destination.write_bytes(b"existing")
 
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/download": download},
+        api_host=False,
+    ) as dbx:
         with pytest.raises(FileExistsError) as caught:
             await dbx.files_download_to_path("/fixture.bin", destination)
 
@@ -96,8 +102,8 @@ async def test_download_to_path_refuses_existing_destination(
 
 
 @pytest.mark.asyncio
-async def test_download_to_path_replaces_existing_destination_when_allowed(
-    aiohttp_server,
+async def test_files_download_to_path_replaces_existing_destination_when_allowed(
+    client_factory,
     tmp_path: Path,
 ) -> None:
     request_count = 0
@@ -116,13 +122,13 @@ async def test_download_to_path_replaces_existing_destination_when_allowed(
             headers={"Dropbox-API-Result": json.dumps(metadata)},
         )
 
-    server = await aiohttp_server(make_app({"/2/files/download": download}))
-    hosts = EndpointHosts(content=str(server.make_url("/")).rstrip("/"))
-
     destination = tmp_path / "existing.bin"
     destination.write_bytes(b"old content")
 
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/download": download},
+        api_host=False,
+    ) as dbx:
         result = await dbx.files_download_to_path(
             "/fixture.bin",
             destination,
@@ -135,22 +141,14 @@ async def test_download_to_path_replaces_existing_destination_when_allowed(
 
 
 @pytest.mark.asyncio
-async def test_download_rejects_missing_metadata_header(aiohttp_server) -> None:
+async def test_files_download_rejects_missing_metadata_header(client_factory) -> None:
     async def download(_: web.Request) -> web.Response:
         return web.Response(body=b"payload")
 
-    server = await aiohttp_server(make_app({"/2/files/download": download}))
-    hosts = EndpointHosts(content=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/download": download},
+        api_host=False,
+    ) as dbx:
         with pytest.raises(DropboxProtocolError, match="Dropbox-API-Result"):
             async with dbx.files_download("/fixture.bin"):
-                pass
-
-
-@pytest.mark.asyncio
-async def test_download_rejects_root_path() -> None:
-    async with AsyncDropbox("test-token") as dbx:
-        with pytest.raises(ValueError, match="non-root"):
-            async with dbx.files_download(""):
                 pass

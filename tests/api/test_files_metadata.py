@@ -3,14 +3,15 @@ from __future__ import annotations
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox
-from aiodbx.hosts import EndpointHosts
-
-from tests.helpers.http import make_app
-
 
 @pytest.mark.asyncio
-async def test_get_metadata_sends_expected_arguments(aiohttp_server) -> None:
+async def test_files_get_metadata_sends_expected_arguments(client_factory) -> None:
+    expected_response = {
+        ".tag": "file",
+        "name": "report.txt",
+        "path_display": "/report.txt",
+    }
+
     async def get_metadata(request: web.Request) -> web.Response:
         assert await request.json() == {
             "path": "/report.txt",
@@ -18,25 +19,12 @@ async def test_get_metadata_sends_expected_arguments(aiohttp_server) -> None:
             "include_deleted": False,
             "include_has_explicit_shared_members": False,
         }
-        return web.json_response(
-            {
-                ".tag": "file",
-                "name": "report.txt",
-                "path_display": "/report.txt",
-            }
-        )
+        return web.json_response(expected_response)
 
-    server = await aiohttp_server(make_app({"/2/files/get_metadata": get_metadata}))
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox(
-        "test-token",
-        _hosts=hosts,
+    async with client_factory(
+        {"/2/files/get_metadata": get_metadata},
+        content_host=False,
     ) as dbx:
         response = await dbx.files_get_metadata("/report.txt")
 
-    assert response == {
-        ".tag": "file",
-        "name": "report.txt",
-        "path_display": "/report.txt",
-    }
+    assert response == expected_response

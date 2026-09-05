@@ -4,15 +4,10 @@ import pytest
 from aiohttp import web
 
 from aiodbx import AsyncDropbox, DropboxConflictError
-from aiodbx.hosts import EndpointHosts
-
-from tests.helpers.http import make_app
 
 
 @pytest.mark.asyncio
-async def test_rpc_sends_unstructured_json_payload(
-    aiohttp_server,
-) -> None:
+async def test_rpc_sends_unstructured_json_payload(client_factory) -> None:
     payload = {
         "from_path": "/draft.txt",
         "to_path": "/published.txt",
@@ -31,10 +26,10 @@ async def test_rpc_sends_unstructured_json_payload(
         assert await request.json() == payload
         return web.json_response(expected_response)
 
-    server = await aiohttp_server(make_app({"/2/files/move_v2": move_v2}))
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/move_v2": move_v2},
+        content_host=False,
+    ) as dbx:
         result = await dbx.rpc("/2/files/move_v2", payload)
 
     assert result == expected_response
@@ -76,9 +71,7 @@ async def test_rpc_rejects_non_mapping_payload(arg: object) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rpc_uses_normal_dropbox_error_mapping(
-    aiohttp_server,
-) -> None:
+async def test_rpc_uses_normal_dropbox_error_mapping(client_factory) -> None:
     async def handler(_: web.Request) -> web.Response:
         return web.json_response(
             {
@@ -91,10 +84,10 @@ async def test_rpc_uses_normal_dropbox_error_mapping(
             status=409,
         )
 
-    server = await aiohttp_server(make_app({"/2/files/move_v2": handler}))
-    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
-
-    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+    async with client_factory(
+        {"/2/files/move_v2": handler},
+        content_host=False,
+    ) as dbx:
         with pytest.raises(DropboxConflictError) as caught:
             await dbx.rpc("/2/files/move_v2", {})
 
