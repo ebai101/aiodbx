@@ -11,10 +11,26 @@ async def test_rejects_empty_access_token() -> None:
         AsyncDropbox("")
 
 
-@pytest.mark.asyncio
-async def test_rejects_invalid_configuration() -> None:
-    with pytest.raises(ValueError, match="max_connections"):
-        ClientConfig(max_connections=0)
+@pytest.mark.parametrize(
+    ("kwargs", "err_text"),
+    [
+        ({"max_connections": 0}, "max_connections must be at least 1"),
+        (
+            {"max_connections_per_host": 0},
+            "max_connections_per_host must be at least 1",
+        ),
+        ({"connect_timeout": 0}, "connect_timeout must be greater than 0"),
+        ({"read_timeout": 0}, "read_timeout must be greater than 0"),
+        ({"total_timeout": 0}, "total_timeout must be greater than 0"),
+        ({"dns_cache_ttl": -1}, "dns_cache_ttl must not be negative"),
+    ],
+)
+def test_rejects_invalid_configuration(
+    kwargs: dict[str, int | float],
+    err_text: str,
+) -> None:
+    with pytest.raises(ValueError, match=err_text):
+        ClientConfig(**kwargs)  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox
+from aiodbx import AsyncDropbox, DropboxProtocolError
 from aiodbx.hosts import EndpointHosts
 
 from .helpers.local import make_app
@@ -91,3 +91,65 @@ async def test_iter_folder_follows_cursor(aiohttp_server) -> None:
         {".tag": "file", "name": "first"},
         {".tag": "folder", "name": "second"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_files_list_folder_iter_rejects_non_list_entries(
+    aiohttp_server,
+) -> None:
+    async def list_folder(_: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "entries": {"not": "a list"},
+                "cursor": "cursor-1",
+                "has_more": False,
+            }
+        )
+
+    server = await aiohttp_server(make_app({"/2/files/list_folder": list_folder}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
+
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+        with pytest.raises(DropboxProtocolError, match="non-list"):
+            _ = [entry async for entry in dbx.files_list_folder_iter("")]
+
+
+@pytest.mark.asyncio
+async def test_files_list_folder_iter_rejects_non_object_entry(
+    aiohttp_server,
+) -> None:
+    async def list_folder(_: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "entries": ["not-an-object"],
+                "cursor": "cursor-1",
+                "has_more": False,
+            }
+        )
+
+    server = await aiohttp_server(make_app({"/2/files/list_folder": list_folder}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
+
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+        with pytest.raises(DropboxProtocolError, match="non-object"):
+            _ = [entry async for entry in dbx.files_list_folder_iter("")]
+
+
+@pytest.mark.asyncio
+async def test_files_list_folder_iter_rejects_missing_cursor_when_more_results(
+    aiohttp_server,
+) -> None:
+    async def list_folder(_: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "entries": [],
+                "has_more": True,
+            }
+        )
+
+    server = await aiohttp_server(make_app({"/2/files/list_folder": list_folder}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
+
+    async with AsyncDropbox("test-token", _hosts=hosts) as dbx:
+        with pytest.raises(DropboxProtocolError, match="without a string cursor"):
+            _ = [entry async for entry in dbx.files_list_folder_iter("")]

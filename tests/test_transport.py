@@ -227,3 +227,30 @@ def test_error_diagnostic_details_excludes_response_body() -> None:
         "request_id": None,
         "retry_after": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_rpc_retries_server_error_then_succeeds(aiohttp_server) -> None:
+    attempts = 0
+
+    async def handler(_: web.Request) -> web.Response:
+        nonlocal attempts
+        attempts += 1
+
+        if attempts == 1:
+            return web.Response(status=503, text="temporarily unavailable")
+
+        return web.json_response({"ok": True})
+
+    server = await aiohttp_server(make_app({"/2/test": handler}))
+    hosts = EndpointHosts(api=str(server.make_url("/")).rstrip("/"))
+
+    async with AsyncDropbox(
+        "test-token",
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+        _hosts=hosts,
+    ) as dbx:
+        result = await dbx._transport.rpc("/2/test", {})  # ty: ignore[unresolved-attribute]
+
+    assert result == {"ok": True}
+    assert attempts == 2

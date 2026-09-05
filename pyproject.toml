@@ -16,9 +16,6 @@ Homepage = "https://github.com/ebai101/aiodbx"
 Repository = "https://github.com/ebai101/aiodbx"
 Issues = "https://github.com/ebai101/aiodbx/issues"
 
-[project.scripts]
-tests = "tests.runner:main"
-
 [dependency-groups]
 dev = [
   "coverage>=7.16.0",
@@ -37,7 +34,7 @@ markers = [
   "integration: calls the real Dropbox API. requires AIODBX_TEST_ACCESS_TOKEN",
   "live_write: creates and deletes state in the Dropbox test app folder",
 ]
-addopts = ["--cov=aiodbx", "--cov-report=term-missing"]
+addopts = ["--cov", "--cov-fail-under=80"]
 
 [tool.ruff]
 target-version = "py311"
