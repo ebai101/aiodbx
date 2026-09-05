@@ -9,6 +9,7 @@ from aiodbx import (
     DropboxAuthenticationError,
     DropboxConflictError,
     DropboxError,
+    DropboxProtocolError,
     DropboxRateLimitError,
     RetryPolicy,
 )
@@ -65,16 +66,35 @@ async def test_409_becomes_conflict_error(client_factory) -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_success_json_becomes_dropbox_error(client_factory) -> None:
+@pytest.mark.parametrize(
+    ("body", "content_type", "expected_message"),
+    [
+        ("not json", "text/plain", "invalid JSON"),
+        ("[]", "application/json", "not an object"),
+        ('"unexpected scalar"', "application/json", "not an object"),
+    ],
+)
+async def test_invalid_success_json_response_becomes_protocol_error(
+    client_factory,
+    body: str,
+    content_type: str,
+    expected_message: str,
+) -> None:
     async def handler(_: web.Request) -> web.Response:
-        return web.Response(text="not json", content_type="text/plain")
+        return web.Response(
+            text=body,
+            content_type=content_type,
+            headers={"X-Dropbox-Request-Id": "request-malformed-json"},
+        )
 
     async with client_factory({"/2/test": handler}, content_host=False) as dbx:
-        transport = dbx._transport
-        assert transport is not None
+        with pytest.raises(DropboxProtocolError, match=expected_message) as caught:
+            await transport_for(dbx).rpc("/2/test", {})
 
-        with pytest.raises(DropboxError, match="invalid JSON"):
-            await transport.rpc("/2/test", {})
+    error = caught.value
+    assert error.status_code == 200
+    assert error.request_id == "request-malformed-json"
+    assert error.response_body == body
 
 
 @pytest.mark.asyncio

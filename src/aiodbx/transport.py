@@ -247,20 +247,25 @@ class DropboxTransport:
         self,
         response: aiohttp.ClientResponse,
     ) -> dict[str, Any]:
+        """Decode a successful Dropbox JSON-object response."""
         body = await response.text()
+
         try:
             payload = json.loads(body)
         except json.JSONDecodeError as exc:
-            raise DropboxError(
-                message="Dropbox returned invalid JSON.",
+            raise DropboxProtocolError(
+                message="Dropbox returned invalid JSON in a successful response.",
                 status_code=response.status,
                 request_id=self._request_id(response),
                 response_body=body,
             ) from exc
 
         if not isinstance(payload, dict):
-            raise DropboxError(
-                message="Dropbox returned a JSON response that was not an object.",
+            raise DropboxProtocolError(
+                message=(
+                    "Dropbox returned a successful JSON "
+                    "response that was not an object."
+                ),
                 status_code=response.status,
                 request_id=self._request_id(response),
                 response_body=body,
