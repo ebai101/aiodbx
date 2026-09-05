@@ -1,4 +1,3 @@
-# src/aiodbx/filesystem.py
 from __future__ import annotations
 
 from os import PathLike

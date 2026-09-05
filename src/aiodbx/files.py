@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TypeAlias
 
 from .downloads import DownloadResponse
 from .errors import DropboxProtocolError
@@ -13,6 +13,10 @@ from .filesystem import (
 )
 from .paths import validate_non_root_path
 from .transport import DropboxTransport
+
+ContentBytes: TypeAlias = bytes | bytearray | memoryview
+
+SIMPLE_UPLOAD_MAX_BYTES = 150 * 1024 * 1024
 
 
 class FilesNamespace:
@@ -164,3 +168,71 @@ class FilesNamespace:
                 overwrite=overwrite,
             )
             return response.metadata
+
+    async def upload(
+        self,
+        f: ContentBytes,
+        path: str,
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        content_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/upload`` endpoint."""
+        validate_non_root_path(path)
+        _validate_content_bytes(f)
+        _validate_simple_upload_size(f)
+
+        arg: dict[str, Any] = {
+            "path": path,
+            "mode": mode,
+            "autorename": autorename,
+            "mute": mute,
+            "strict_conflict": strict_conflict,
+        }
+        if client_modified is not None:
+            arg["client_modified"] = client_modified
+        if property_groups is not None:
+            arg["property_groups"] = property_groups
+        if content_hash is not None:
+            arg["content_hash"] = content_hash
+
+        return await self._transport.content_upload(
+            "/2/files/upload",
+            arg,
+            data=f,
+        )
+
+    async def delete_v2(
+        self,
+        path: str,
+        *,
+        parent_rev: str | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/delete_v2`` endpoint."""
+        validate_non_root_path(path)
+
+        arg: dict[str, Any] = {"path": path}
+        if parent_rev is not None:
+            arg["parent_rev"] = parent_rev
+
+        return await self._transport.rpc("/2/files/delete_v2", arg)
+
+
+def _validate_content_bytes(f: ContentBytes) -> None:
+    if not isinstance(f, ContentBytes):
+        raise TypeError("f must be bytes, bytearray, or memoryview.")
+
+
+def _validate_simple_upload_size(f: ContentBytes) -> None:
+    if len(f) > SIMPLE_UPLOAD_MAX_BYTES:
+        raise ValueError(
+            "files_upload supports content up to 150 MiB. "
+            "Use files_upload_session_start, "
+            "files_upload_session_append_v2, and "
+            "files_upload_session_finish for larger content."
+        )

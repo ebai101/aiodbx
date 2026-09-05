@@ -4,6 +4,8 @@ import os
 
 import pytest
 
+from ..helpers.integration import test_run_root
+
 TOKEN_ENV = "AIODBX_TEST_ACCESS_TOKEN"
 TEST_FOLDER_PATH_ENV = "AIODBX_TEST_FOLDER_PATH"
 TEST_DOWNLOAD_FILE_PATH_ENV = "AIODBX_TEST_DOWNLOAD_FILE_PATH"
@@ -45,6 +47,11 @@ def dropbox_test_download_file_path() -> str:
     if not path:
         pytest.skip(
             f"{TEST_DOWNLOAD_FILE_PATH_ENV} \
-            is not set; skipping Dropbo download integration tests."
+            is not set; skipping Dropbox download integration tests."
         )
     return path
+
+
+@pytest.fixture(scope="session")
+def dropbox_live_write_root() -> str:
+    return test_run_root()

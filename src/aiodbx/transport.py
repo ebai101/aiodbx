@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TypeAlias
 
 import aiohttp
 
@@ -21,6 +21,8 @@ from .errors import (
 )
 from .hosts import EndpointHosts
 from .retry import RetryPolicy
+
+ContentBody: TypeAlias = bytes | bytearray | memoryview
 
 
 class DropboxTransport:
@@ -76,13 +78,37 @@ class DropboxTransport:
             metadata = await self._read_download_metadata(response)
             yield DownloadResponse(metadata=metadata, _response=response)
 
+    async def content_upload(
+        self,
+        path: str,
+        arg: Mapping[str, Any],
+        *,
+        data: ContentBody,
+    ) -> dict[str, Any]:
+        """Call a Dropbox content-upload endpoint and return its JSON result."""
+        if not path.startswith("/"):
+            raise ValueError("Dropbox endpoint paths must start with '/'.")
+
+        return await self._request_json(
+            url=f"{self._hosts.content}{path}",
+            headers=self._content_headers(
+                arg,
+                content_type="application/octet-stream",
+            ),
+            data=data,
+        )
+
     async def _request_json(
         self,
         *,
         url: str,
         headers: Mapping[str, str],
-        json_body: Mapping[str, Any],
+        json_body: Mapping[str, Any] | None = None,
+        data: ContentBody | None = None,
     ) -> dict[str, Any]:
+        if (json_body is None) == (data is None):
+            raise ValueError("Pass exactly one of json_body or data.")
+
         request_headers = self._authorization_headers() | dict(headers)
 
         for attempt in range(1, self._retry_policy.max_attempts + 1):
@@ -91,6 +117,7 @@ class DropboxTransport:
                     url,
                     headers=request_headers,
                     json=json_body,
+                    data=data,
                 ) as response:
                     if 200 <= response.status < 300:
                         return await self._read_json(response)
@@ -111,11 +138,12 @@ class DropboxTransport:
                 self._retry_policy.should_retry_status(error.status_code or 0)
                 and attempt < self._retry_policy.max_attempts
             ):
-                delay = self._retry_policy.delay_for_attempt(
-                    attempt,
-                    retry_after=error.retry_after,
+                await asyncio.sleep(
+                    self._retry_policy.delay_for_attempt(
+                        attempt,
+                        retry_after=error.retry_after,
+                    )
                 )
-                await asyncio.sleep(delay)
                 continue
 
             raise error
@@ -273,13 +301,19 @@ class DropboxTransport:
             return DropboxRateLimitError(**kwargs)
         return DropboxError(**kwargs)
 
-    def _content_headers(self, arg: Mapping[str, Any]) -> dict[str, str]:
+    def _content_headers(
+        self, arg: Mapping[str, Any], *, content_type: str | None = None
+    ) -> dict[str, str]:
         headers = self._authorization_headers()
         headers["Dropbox-API-Arg"] = json.dumps(
             arg,
             ensure_ascii=False,
             separators=(",", ":"),
         )
+
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+
         return headers
 
     def _authorization_headers(self) -> dict[str, str]:

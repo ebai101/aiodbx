@@ -187,6 +187,44 @@ class AsyncDropbox:
         async with self._require_files().download(path) as response:
             yield response
 
+    async def files_upload(
+        self,
+        f: bytes | bytearray | memoryview,
+        path: str,
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        content_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/upload`` endpoint."""
+        return await self._require_files().upload(
+            f,
+            path,
+            mode=mode,
+            autorename=autorename,
+            client_modified=client_modified,
+            mute=mute,
+            property_groups=property_groups,
+            strict_conflict=strict_conflict,
+            content_hash=content_hash,
+        )
+
+    async def files_delete_v2(
+        self,
+        path: str,
+        *,
+        parent_rev: str | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's ``/2/files/delete_v2`` endpoint."""
+        return await self._require_files().delete_v2(
+            path,
+            parent_rev=parent_rev,
+        )
+
     # Convenience helpers
 
     async def files_list_folder_iter(
