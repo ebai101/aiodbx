@@ -12,21 +12,6 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
-async def test_get_metadata_for_configured_folder(
-    dropbox_test_token: str,
-    dropbox_test_folder_path: str,
-) -> None:
-    async with AsyncDropbox(dropbox_test_token) as dbx:
-        metadata = await require_dropbox(
-            "files/get_metadata", dbx.files_get_metadata(dropbox_test_folder_path)
-        )
-
-    assert metadata[".tag"] == "folder"
-    assert isinstance(metadata.get("id"), str)
-    assert metadata["path_lower"] == dropbox_test_folder_path.lower()
-
-
-@pytest.mark.asyncio
 async def test_root_listing_has_a_cursor_and_entries_list(
     dropbox_test_token: str,
 ) -> None:
@@ -72,6 +57,7 @@ async def test_live_write_root_exists(
 
     assert metadata[".tag"] == "folder"
     assert metadata["path_lower"] == dropbox_live_write_root.lower()
+    assert isinstance(metadata.get("id"), str)
 
 
 @pytest.mark.live_write
