@@ -74,7 +74,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Download a file
+## Downloading files
 
 `files_download()` is a direct wrapper for Dropbox's `/2/files/download` endpoint. It returns an async context manager so the HTTP response is always closed correctly.
 
@@ -100,7 +100,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-In most use cases, you'll want to save to a file:
+In most use cases, you'll want to save to a file. This will download the file to a temp path and atomically replace the destination on success:
 
 ```python
 await dbx.files_download_to_path(
@@ -108,8 +108,6 @@ await dbx.files_download_to_path(
     "latest.csv",
 )
 ```
-
-This will download the file to a temp path and atomically replace the destination on success.
 
 ## Implemented endpoints
 
