@@ -8,7 +8,7 @@ import pytest
 from aiodbx import AsyncDropbox, DropboxNotFoundError
 from tests.helpers.integration import require_dropbox, require_dropbox_iter
 
-pytestmark = [pytest.mark.integration, pytest.mark.live_write]
+pytestmark = pytest.mark.integration
 
 
 @pytest.mark.asyncio
@@ -58,6 +58,7 @@ async def test_iter_folder_yields_valid_entries(
     assert seen > 0
 
 
+@pytest.mark.live_write
 @pytest.mark.asyncio
 async def test_live_write_root_exists(
     dropbox_test_token: str,
@@ -73,6 +74,7 @@ async def test_live_write_root_exists(
     assert metadata["path_lower"] == dropbox_live_write_root.lower()
 
 
+@pytest.mark.live_write
 @pytest.mark.asyncio
 async def test_files_create_folder_v2_creates_a_real_folder(
     dropbox_test_token: str,
