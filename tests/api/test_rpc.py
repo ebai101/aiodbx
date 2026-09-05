@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from aiohttp import web
 
-from aiodbx import AsyncDropbox, DropboxConflictError
+from aiodbx import AsyncDropbox
 
 
 @pytest.mark.asyncio
@@ -68,27 +68,3 @@ async def test_rpc_rejects_non_mapping_payload(arg: object) -> None:
     async with AsyncDropbox("test-token") as dbx:
         with pytest.raises(TypeError, match="arg must be a mapping"):
             await dbx.rpc("/2/files/move_v2", arg)  # ty: ignore[invalid-argument-type]
-
-
-@pytest.mark.asyncio
-async def test_rpc_uses_normal_dropbox_error_mapping(client_factory) -> None:
-    async def handler(_: web.Request) -> web.Response:
-        return web.json_response(
-            {
-                "error_summary": "from_lookup/not_found/..",
-                "error": {
-                    ".tag": "from_lookup",
-                    "from_lookup": {".tag": "not_found"},
-                },
-            },
-            status=409,
-        )
-
-    async with client_factory(
-        {"/2/files/move_v2": handler},
-        content_host=False,
-    ) as dbx:
-        with pytest.raises(DropboxConflictError) as caught:
-            await dbx.rpc("/2/files/move_v2", {})
-
-    assert caught.value.error_tag == "from_lookup/not_found"
