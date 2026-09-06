@@ -74,7 +74,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Download a file
+## Downloading files
 
 `files_download()` is a direct wrapper for Dropbox's `/2/files/download` endpoint. It returns an async context manager so the HTTP response is always closed correctly.
 
@@ -110,6 +110,50 @@ await dbx.files_download_to_path(
 ```
 
 This will download the file to a temp path and atomically replace the destination on success.
+
+## Upload sessions
+
+Use upload sessions when data must be sent in multiple blocks, such as when building a streaming or resumable upload workflow. These are direct wrappers around Dropbox's upload-session endpoints:
+
+- `files_upload_session_start`
+- `files_upload_session_append_v2`
+- `files_upload_session_finish`
+
+Each call accepts one in-memory bytes-like block (`bytes`, `bytearray`, or `memoryview`). `aiodbx` does not automatically retry a block upload after an ambiguous transport or server failure: Dropbox may have received the block and advanced the remote session offset. If an application needs recovery behavior, it should persist the session ID and the last **confirmed** offset.
+
+This example uploads three blocks. `files_upload_session_finish()` sends the final block and commits the completed session to a Dropbox path, so do not append the final block separately.
+
+```python
+async with AsyncDropbox(token) as dbx:
+    first = b"first block\n"
+    middle = b"middle block\n"
+    last = b"last block\n"
+
+    started = await dbx.files_upload_session_start(first)
+    cursor = {
+        "session_id": started["session_id"],
+        "offset": len(first),
+    }
+
+    await dbx.files_upload_session_append_v2(cursor, middle)
+    cursor["offset"] += len(middle)
+
+    metadata = await dbx.files_upload_session_finish(
+        cursor,
+        {
+            "path": "/upload-session-example.txt",
+            "mode": "overwrite",
+            "autorename": False,
+            "mute": False,
+            "strict_conflict": False,
+        },
+        last,
+    )
+
+print(f"Uploaded {metadata['path_display']} ({metadata['size']} bytes)")
+```
+
+For a one-block upload session, call `files_upload_session_start()` with an empty body, then call `files_upload_session_finish()` with the complete payload. In normal application code, prefer `files_upload()` for small in-memory content. A future `files_upload_path()` helper will stream local files in bounded chunks rather than loading the full file into memory.
 
 ## Implemented endpoints
 
