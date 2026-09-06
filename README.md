@@ -100,7 +100,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-In most use cases, you'll want to save to a file:
+In most use cases, you'll want to save to a file. This will download the file to a temp path and atomically replace the destination on success:
 
 ```python
 await dbx.files_download_to_path(
