@@ -109,8 +109,6 @@ await dbx.files_download_to_path(
 )
 ```
 
-This will download the file to a temp path and atomically replace the destination on success.
-
 ## Upload sessions
 
 Use upload sessions when data must be sent in multiple blocks, such as when building a streaming or resumable upload workflow. These are direct wrappers around Dropbox's upload-session endpoints:
