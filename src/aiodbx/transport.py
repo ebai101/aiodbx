@@ -118,7 +118,7 @@ class DropboxTransport:
         if not path.startswith("/2/"):
             raise ValueError("Dropbox endpoint paths must start with '/2/'.")
 
-        await self.request_empty(
+        await self._request_empty(
             url=f"{self._hosts.content}{path}",
             headers=self._content_headers(
                 arg,
@@ -182,7 +182,7 @@ class DropboxTransport:
 
         raise AssertionError("Retry loop exited unexpectedly.")
 
-    async def request_empty(
+    async def _request_empty(
         self,
         *,
         url: str,
@@ -241,28 +241,11 @@ class DropboxTransport:
         retryable: bool,
     ) -> AsyncIterator[aiohttp.ClientResponse]:
         for attempt in range(1, self._retry_policy.max_attempts + 1):
-            response: aiohttp.ClientResponse | None = None
-
             try:
                 response = await self._session.post(url, headers=headers)
-
-                if 200 <= response.status < 300:
-                    try:
-                        yield response
-                    finally:
-                        response.close()
-                    return
-
-                error = await self._build_error(response)
-                response.close()
             except asyncio.CancelledError:
-                if response is not None:
-                    response.close()
                 raise
             except (aiohttp.ClientError, TimeoutError) as exc:
-                if response is not None:
-                    response.close()
-
                 if not retryable or attempt >= self._retry_policy.max_attempts:
                     raise DropboxTransportError(
                         message=self._transport_message(exc)
@@ -271,16 +254,42 @@ class DropboxTransport:
                 await asyncio.sleep(self._retry_policy.delay_for_attempt(attempt))
                 continue
 
+            if 200 <= response.status < 300:
+                try:
+                    yield response
+                finally:
+                    response.close()
+                return
+
+            try:
+                error = await self._build_error(response)
+            except asyncio.CancelledError:
+                response.close()
+                raise
+            except (aiohttp.ClientError, TimeoutError) as exc:
+                response.close()
+
+                if not retryable or attempt >= self._retry_policy.max_attempts:
+                    raise DropboxTransportError(
+                        message=self._transport_message(exc)
+                    ) from exc
+
+                await asyncio.sleep(self._retry_policy.delay_for_attempt(attempt))
+                continue
+            else:
+                response.close()
+
             if (
                 retryable
                 and self._retry_policy.should_retry_status(error.status_code or 0)
                 and attempt < self._retry_policy.max_attempts
             ):
-                delay = self._retry_policy.delay_for_attempt(
-                    attempt,
-                    retry_after=error.retry_after,
+                await asyncio.sleep(
+                    self._retry_policy.delay_for_attempt(
+                        attempt,
+                        retry_after=error.retry_after,
+                    )
                 )
-                await asyncio.sleep(delay)
                 continue
 
             raise error
