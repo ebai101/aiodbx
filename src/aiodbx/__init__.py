@@ -10,6 +10,7 @@ from .errors import (
     DropboxRateLimitError,
     DropboxTransportError,
 )
+from .files import UploadPath
 from .retry import RetryPolicy
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "DropboxRateLimitError",
     "DropboxTransportError",
     "RetryPolicy",
+    "UploadPath",
 ]

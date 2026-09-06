@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 from anyio import Path
@@ -20,6 +21,14 @@ ContentBytes: TypeAlias = bytes | bytearray | memoryview
 
 SIMPLE_UPLOAD_MAX_BYTES = 150 * 1024 * 1024
 DEFAULT_UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class UploadPath:
+    """One local source and its Dropbox destination for files_upload_paths()."""
+
+    source: LocalPath
+    path: str
 
 
 class FilesNamespace:
@@ -209,7 +218,7 @@ class FilesNamespace:
         content_hash: str | None = None,
         chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
     ) -> dict[str, Any]:
-        """Upload a local file using simple upload or a managed upload session."""
+        """Upload one local file using simple upload or a managed session."""
         validate_non_root_path(path)
         _validate_upload_chunk_size(chunk_size)
 
@@ -243,27 +252,58 @@ class FilesNamespace:
             content_hash=content_hash,
         )
 
-        async with await source_path.open("rb") as file:
-            first_chunk = await file.read(chunk_size)
-            started = await self.upload_session_start(first_chunk)
-            session_id = _validate_upload_session_start_result(started)
-            cursor: dict[str, Any] = {
-                "session_id": session_id,
-                "offset": len(first_chunk),
-            }
+        cursor, final_chunk = await self._upload_path_to_session(
+            source_path,
+            chunk_size=chunk_size,
+        )
+        return await self.upload_session_finish(cursor, commit, final_chunk)
 
-            pending = await file.read(chunk_size)
-            while pending:
-                following = await file.read(chunk_size)
+    async def upload_paths(
+        self,
+        uploads: Sequence[UploadPath],
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    ) -> dict[str, Any]:
+        """Stream and batch-commit multiple local files through upload sessions."""
+        _validate_upload_paths(uploads)
+        _validate_upload_chunk_size(chunk_size)
 
-                if not following:
-                    return await self.upload_session_finish(cursor, commit, pending)
+        entries: list[dict[str, Any]] = []
 
-                await self.upload_session_append_v2(cursor, pending)
-                cursor["offset"] += len(pending)
-                pending = following
+        for upload in uploads:
+            validate_non_root_path(upload.path)
 
-            return await self.upload_session_finish(cursor, commit, b"")
+            source = Path(upload.source)
+            await source.stat()
+
+            cursor = await self._upload_path_to_closed_session(
+                source,
+                chunk_size=chunk_size,
+            )
+            entries.append(
+                {
+                    "cursor": cursor,
+                    "commit": _build_upload_commit(
+                        upload.path,
+                        mode=mode,
+                        autorename=autorename,
+                        client_modified=client_modified,
+                        mute=mute,
+                        property_groups=property_groups,
+                        strict_conflict=strict_conflict,
+                        content_hash=None,
+                    ),
+                }
+            )
+
+        response = await self.upload_session_finish_batch(entries)
+        return await self._finish_batch_until_complete(response)
 
     async def delete_v2(
         self,
@@ -383,6 +423,129 @@ class FilesNamespace:
             retryable=True,
         )
 
+    async def _upload_path_to_session(
+        self,
+        source: Path,
+        *,
+        chunk_size: int,
+    ) -> tuple[dict[str, Any], bytes]:
+        """Stream a source into an open upload session.
+
+        Return the confirmed cursor and the final chunk, which the caller must send
+        to upload_session_finish() with its commit payload. Body-bearing requests
+        deliberately remain non-retryable because Dropbox may have accepted bytes
+        despite a missing client response.
+        """
+        async with await source.open("rb") as file:
+            first_chunk = await file.read(chunk_size)
+            started = await self.upload_session_start(first_chunk)
+            session_id = _validate_upload_session_start_result(started)
+            cursor: dict[str, Any] = {
+                "session_id": session_id,
+                "offset": len(first_chunk),
+            }
+
+            pending = await file.read(chunk_size)
+
+            while pending:
+                following = await file.read(chunk_size)
+
+                if not following:
+                    return cursor, pending
+
+                await self.upload_session_append_v2(cursor, pending)
+                cursor["offset"] += len(pending)
+                pending = following
+
+            return cursor, b""
+
+    async def _upload_path_to_closed_session(
+        self,
+        source: Path,
+        *,
+        chunk_size: int,
+    ) -> dict[str, Any]:
+        """Stream a local source into a closed Dropbox upload session.
+
+        The returned cursor is suitable for upload_session_finish_batch(). The
+        session is closed but uncommitted. Every body-bearing request remains
+        non-retryable because Dropbox may have accepted its bytes.
+        """
+        async with await source.open("rb") as file:
+            first_chunk = await file.read(chunk_size)
+            pending = await file.read(chunk_size)
+
+            if not pending:
+                started = await self.upload_session_start(first_chunk, close=True)
+                session_id = _validate_upload_session_start_result(started)
+                return {
+                    "session_id": session_id,
+                    "offset": len(first_chunk),
+                }
+
+            started = await self.upload_session_start(first_chunk)
+            session_id = _validate_upload_session_start_result(started)
+            cursor: dict[str, Any] = {
+                "session_id": session_id,
+                "offset": len(first_chunk),
+            }
+
+            while True:
+                following = await file.read(chunk_size)
+
+                if not following:
+                    await self.upload_session_append_v2(
+                        cursor,
+                        pending,
+                        close=True,
+                    )
+                    cursor["offset"] += len(pending)
+                    return cursor
+
+                await self.upload_session_append_v2(cursor, pending)
+                cursor["offset"] += len(pending)
+                pending = following
+
+    async def _finish_batch_until_complete(
+        self,
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        tag = response.get(".tag")
+        async_job_id: str | None = None
+
+        if tag == "async_job_id":
+            value = response.get("async_job_id")
+            if not isinstance(value, str) or not value:
+                raise DropboxProtocolError(
+                    "Dropbox upload-session finish-batch response is missing "
+                    "an async_job_id."
+                )
+            async_job_id = value
+            response = await self.upload_session_finish_batch_check(async_job_id)
+            tag = response.get(".tag")
+
+        while tag == "in_progress":
+            if async_job_id is None:
+                raise DropboxProtocolError(
+                    "Dropbox upload-session finish-batch check returned in_progress "
+                    "without an async job ID."
+                )
+            response = await self.upload_session_finish_batch_check(async_job_id)
+            tag = response.get(".tag")
+
+        if tag != "complete":
+            raise DropboxProtocolError(
+                "Dropbox upload-session finish-batch response has an unexpected tag."
+            )
+
+        entries = response.get("entries")
+        if not isinstance(entries, list):
+            raise DropboxProtocolError(
+                "Dropbox upload-session finish-batch completion is missing entries."
+            )
+
+        return response
+
 
 def _validate_content_bytes(f: ContentBytes) -> None:
     if not isinstance(f, ContentBytes):
@@ -465,6 +628,16 @@ def _validate_upload_session_start_result(result: dict[str, Any]) -> str:
             "Dropbox upload-session start response is missing a session_id."
         )
     return session_id
+
+
+def _validate_upload_paths(uploads: Sequence[UploadPath]) -> None:
+    if not isinstance(uploads, Sequence):
+        raise TypeError("uploads must be a sequence of UploadPath values.")
+    if not uploads:
+        raise ValueError("uploads must not be empty.")
+    for upload in uploads:
+        if not isinstance(upload, UploadPath):
+            raise TypeError("uploads must contain UploadPath values.")
 
 
 def _build_upload_commit(

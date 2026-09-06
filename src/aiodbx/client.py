@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
@@ -8,7 +8,7 @@ from typing import Any, Self
 import aiohttp
 
 from .downloads import DownloadResponse
-from .files import DEFAULT_UPLOAD_CHUNK_SIZE, FilesNamespace
+from .files import DEFAULT_UPLOAD_CHUNK_SIZE, FilesNamespace, UploadPath
 from .filesystem import LocalPath
 from .hosts import EndpointHosts
 from .retry import RetryPolicy
@@ -408,6 +408,30 @@ class AsyncDropbox:
             property_groups=property_groups,
             strict_conflict=strict_conflict,
             content_hash=content_hash,
+            chunk_size=chunk_size,
+        )
+
+    async def files_upload_paths(
+        self,
+        uploads: Sequence[UploadPath],
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    ) -> dict[str, Any]:
+        """Stream and batch-commit multiple local files through upload sessions."""
+        return await self._require_files().upload_paths(
+            uploads,
+            mode=mode,
+            autorename=autorename,
+            client_modified=client_modified,
+            mute=mute,
+            property_groups=property_groups,
+            strict_conflict=strict_conflict,
             chunk_size=chunk_size,
         )
 
