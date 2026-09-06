@@ -46,7 +46,7 @@ async def test_files_download_to_path_streams_content_and_returns_metadata(
         await response.write_eof()
         return response
 
-    destination = AsyncPath(tmp_path) / "fixture.bin"
+    destination = AsyncPath(tmp_path / "fixture.bin")
 
     async with client_factory(
         {"/2/files/download": download},
@@ -87,7 +87,7 @@ async def test_files_download_to_path_refuses_existing_destination(
             },
         )
 
-    destination = AsyncPath(tmp_path) / "existing.bin"
+    destination = AsyncPath(tmp_path / "existing.bin")
     await destination.write_bytes(b"existing")
 
     async with client_factory(
@@ -123,7 +123,7 @@ async def test_files_download_to_path_replaces_existing_destination_when_allowed
             headers={"Dropbox-API-Result": json.dumps(metadata)},
         )
 
-    destination = AsyncPath(tmp_path) / "existing.bin"
+    destination = AsyncPath(tmp_path / "existing.bin")
     await destination.write_bytes(b"old content")
 
     async with client_factory(
