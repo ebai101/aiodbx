@@ -123,6 +123,11 @@ This will download the file to a temp path and atomically replace the destinatio
 | `files_upload()` | `/2/files/upload` |
 | `files_create_folder_v2()` | `/2/files/create_folder_v2` |
 | `files_delete_v2()` | `/2/files/delete_v2` |
+| `files_upload_session_start()` | `/2/files/upload_session/start` |
+| `files_upload_session_append_v2()` | `/2/files/upload_session/append_v2` |
+| `files_upload_session_finish()` | `/2/files/upload_session/finish` |
+| `files_upload_session_finish_batch()` | `/2/files/upload_session/finish_batch` |
+| `files_upload_session_finish_batch_check()` | `/2/files/upload_session/finish_batch/check` |
 
 
 ## Helper functions

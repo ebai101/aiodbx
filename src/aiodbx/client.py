@@ -248,6 +248,63 @@ class AsyncDropbox:
             content_hash=content_hash,
         )
 
+    async def files_upload_session_start(
+        self,
+        f: bytes | bytearray | memoryview,
+        *,
+        close: bool = False,
+        session_type: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/start endpoint."""
+        return await self._require_files().upload_session_start(
+            f,
+            close=close,
+            session_type=session_type,
+        )
+
+    async def files_upload_session_append_v2(
+        self,
+        cursor: dict[str, Any],
+        f: bytes | bytearray | memoryview,
+        *,
+        close: bool = False,
+    ) -> None:
+        """Call Dropbox's /2/files/upload_session/append_v2 endpoint."""
+        await self._require_files().upload_session_append_v2(
+            cursor,
+            f,
+            close=close,
+        )
+
+    async def files_upload_session_finish(
+        self,
+        cursor: dict[str, Any],
+        commit: dict[str, Any],
+        f: bytes | bytearray | memoryview,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish endpoint."""
+        return await self._require_files().upload_session_finish(
+            cursor,
+            commit,
+            f,
+        )
+
+    async def files_upload_session_finish_batch(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish_batch endpoint."""
+        return await self._require_files().upload_session_finish_batch(entries)
+
+    async def files_upload_session_finish_batch_check(
+        self,
+        async_job_id: str,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish_batch/check endpoint."""
+        return await self._require_files().upload_session_finish_batch_check(
+            async_job_id
+        )
+
     async def files_delete_v2(
         self,
         path: str,

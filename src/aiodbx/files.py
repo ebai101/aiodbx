@@ -238,6 +238,92 @@ class FilesNamespace:
             },
         )
 
+    async def upload_session_start(
+        self,
+        f: ContentBytes,
+        *,
+        close: bool = False,
+        session_type: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/start endpoint."""
+        _validate_content_bytes(f)
+
+        arg: dict[str, Any] = {"close": close}
+        if session_type is not None:
+            arg["session_type"] = session_type
+
+        return await self._transport.content_upload(
+            "/2/files/upload_session/start",
+            arg,
+            data=f,
+        )
+
+    async def upload_session_append_v2(
+        self,
+        cursor: dict[str, Any],
+        f: ContentBytes,
+        *,
+        close: bool = False,
+    ) -> None:
+        """Call Dropbox's /2/files/upload_session/append_v2 endpoint."""
+        _validate_upload_session_cursor(cursor)
+        _validate_content_bytes(f)
+
+        await self._transport.content_upload_empty(
+            "/2/files/upload_session/append_v2",
+            {
+                "cursor": cursor,
+                "close": close,
+            },
+            f,
+        )
+
+    async def upload_session_finish(
+        self,
+        cursor: dict[str, Any],
+        commit: dict[str, Any],
+        f: ContentBytes,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish endpoint."""
+        _validate_upload_session_cursor(cursor)
+        _validate_upload_commit_info(commit)
+        _validate_content_bytes(f)
+
+        return await self._transport.content_upload(
+            "/2/files/upload_session/finish",
+            {
+                "cursor": cursor,
+                "commit": commit,
+            },
+            data=f,
+        )
+
+    async def upload_session_finish_batch(
+        self,
+        entries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish_batch endpoint."""
+        _validate_upload_session_finish_batch_entries(entries)
+
+        return await self._transport.rpc(
+            "/2/files/upload_session/finish_batch",
+            {"entries": entries},
+        )
+
+    async def upload_session_finish_batch_check(
+        self,
+        async_job_id: str,
+    ) -> dict[str, Any]:
+        """Call Dropbox's /2/files/upload_session/finish_batch/check endpoint."""
+        if not async_job_id:
+            raise ValueError("async_job_id must not be empty.")
+
+        return await self._transport.rpc(
+            "/2/files/upload_session/finish_batch/check",
+            {"async_job_id": async_job_id},
+            retryable=True,
+        )
+
 
 def _validate_content_bytes(f: ContentBytes) -> None:
     if not isinstance(f, ContentBytes):
@@ -252,3 +338,55 @@ def _validate_simple_upload_size(f: ContentBytes) -> None:
             "files_upload_session_append_v2, and "
             "files_upload_session_finish for larger content."
         )
+
+
+def _validate_upload_session_cursor(cursor: dict[str, Any]) -> None:
+    if not isinstance(cursor, dict):
+        raise TypeError("cursor must be a mapping.")
+
+    session_id = cursor.get("session_id")
+    offset = cursor.get("offset")
+
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("cursor.session_id must be a non-empty string.")
+
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValueError("cursor.offset must be a non-negative integer.")
+
+
+def _validate_upload_commit_info(commit: dict[str, Any]) -> None:
+    if not isinstance(commit, dict):
+        raise TypeError("commit must be a mapping.")
+
+    path = commit.get("path")
+    if not isinstance(path, str):
+        raise ValueError("commit.path must be a Dropbox path string.")
+
+    validate_non_root_path(path)
+
+
+def _validate_upload_session_finish_batch_entries(
+    entries: list[dict[str, Any]],
+) -> None:
+    if not isinstance(entries, list):
+        raise TypeError("entries must be a list of upload-session finish entries.")
+
+    if not entries:
+        raise ValueError("entries must not be empty.")
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError(
+                "entries must contain upload-session finish entry mappings."
+            )
+
+        cursor = entry.get("cursor")
+        commit = entry.get("commit")
+
+        if not isinstance(cursor, dict):
+            raise ValueError("each entry must include a cursor mapping.")
+        if not isinstance(commit, dict):
+            raise ValueError("each entry must include a commit mapping.")
+
+        _validate_upload_session_cursor(cursor)
+        _validate_upload_commit_info(commit)
