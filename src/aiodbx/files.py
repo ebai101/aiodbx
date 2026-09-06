@@ -4,6 +4,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, TypeAlias
 
+from anyio import Path
+
 from .downloads import DownloadResponse
 from .errors import DropboxProtocolError
 from .filesystem import (
@@ -17,6 +19,7 @@ from .transport import DropboxTransport
 ContentBytes: TypeAlias = bytes | bytearray | memoryview
 
 SIMPLE_UPLOAD_MAX_BYTES = 150 * 1024 * 1024
+DEFAULT_UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
 
 
 class FilesNamespace:
@@ -206,6 +209,86 @@ class FilesNamespace:
             data=f,
         )
 
+    async def upload_path(
+        self,
+        source: LocalPath,
+        path: str,
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        content_hash: str | None = None,
+        chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    ) -> dict[str, Any]:
+        """Upload a local file with simple upload or a managed upload session.
+
+        Files no larger than Dropbox's simple-upload limit are read once and sent
+        through ``files/upload``. Larger files are read in bounded chunks and sent
+        through an upload session. The helper owns the session cursor only for the
+        lifetime of this call; it does not persist resumable upload state.
+
+        Upload blocks are deliberately not retried after ambiguous transport or
+        server failures, because Dropbox may have accepted a block even when the
+        client did not receive a response.
+        """
+        validate_non_root_path(path)
+        _validate_upload_chunk_size(chunk_size)
+
+        source_path = Path(source)
+        size = (await source_path.stat()).st_size
+
+        if size <= SIMPLE_UPLOAD_MAX_BYTES:
+            async with await source_path.open("rb") as file:
+                content = await file.read()
+
+            return await self.upload(
+                content,
+                path,
+                mode=mode,
+                autorename=autorename,
+                client_modified=client_modified,
+                mute=mute,
+                property_groups=property_groups,
+                strict_conflict=strict_conflict,
+                content_hash=content_hash,
+            )
+
+        commit = _build_upload_commit(
+            path,
+            mode=mode,
+            autorename=autorename,
+            client_modified=client_modified,
+            mute=mute,
+            property_groups=property_groups,
+            strict_conflict=strict_conflict,
+            content_hash=content_hash,
+        )
+
+        async with await source_path.open("rb") as file:
+            first_chunk = await file.read(chunk_size)
+            started = await self.upload_session_start(first_chunk)
+            session_id = _validate_upload_session_start_result(started)
+            cursor: dict[str, Any] = {
+                "session_id": session_id,
+                "offset": len(first_chunk),
+            }
+
+            pending = await file.read(chunk_size)
+            while pending:
+                following = await file.read(chunk_size)
+
+                if not following:
+                    return await self.upload_session_finish(cursor, commit, pending)
+
+                await self.upload_session_append_v2(cursor, pending)
+                cursor["offset"] += len(pending)
+                pending = following
+
+            return await self.upload_session_finish(cursor, commit, b"")
+
     async def delete_v2(
         self,
         path: str,
@@ -390,3 +473,48 @@ def _validate_upload_session_finish_batch_entries(
 
         _validate_upload_session_cursor(cursor)
         _validate_upload_commit_info(commit)
+
+
+def _validate_upload_chunk_size(chunk_size: int) -> None:
+    if not isinstance(chunk_size, int) or isinstance(chunk_size, bool):
+        raise TypeError("chunk_size must be an integer.")
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be at least 1.")
+
+
+def _validate_upload_session_start_result(result: dict[str, Any]) -> str:
+    session_id = result.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise DropboxProtocolError(
+            "Dropbox upload-session start response is missing a session_id."
+        )
+    return session_id
+
+
+def _build_upload_commit(
+    path: str,
+    *,
+    mode: str | dict[str, Any],
+    autorename: bool,
+    client_modified: str | None,
+    mute: bool,
+    property_groups: list[dict[str, Any]] | None,
+    strict_conflict: bool,
+    content_hash: str | None,
+) -> dict[str, Any]:
+    commit: dict[str, Any] = {
+        "path": path,
+        "mode": mode,
+        "autorename": autorename,
+        "mute": mute,
+        "strict_conflict": strict_conflict,
+    }
+
+    if client_modified is not None:
+        commit["client_modified"] = client_modified
+    if property_groups is not None:
+        commit["property_groups"] = property_groups
+    if content_hash is not None:
+        commit["content_hash"] = content_hash
+
+    return commit
