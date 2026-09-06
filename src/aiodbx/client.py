@@ -165,7 +165,7 @@ class AsyncDropbox:
         return await self._require_transport().rpc(endpoint, arg)
 
     async def users_get_current_account(self) -> dict[str, Any]:
-        """Call Dropbox's ``/2/users/get_current_account`` endpoint."""
+        """Return metadata for the account associated with this access token."""
         return await self._require_users().get_current_account()
 
     async def files_get_metadata(
@@ -176,7 +176,7 @@ class AsyncDropbox:
         include_deleted: bool = False,
         include_has_explicit_shared_members: bool = False,
     ) -> dict[str, Any]:
-        """Call Dropbox's ``/2/files/get_metadata`` endpoint."""
+        """Return metadata for a Dropbox file or folder."""
         return await self._require_files().get_metadata(
             path,
             include_media_info=include_media_info,
@@ -195,7 +195,7 @@ class AsyncDropbox:
         include_mounted_folders: bool = True,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """Call Dropbox's ``/2/files/list_folder`` endpoint."""
+        """Return one page of entries in a Dropbox folder."""
         return await self._require_files().list_folder(
             path,
             recursive=recursive,
@@ -207,7 +207,7 @@ class AsyncDropbox:
         )
 
     async def files_list_folder_continue(self, cursor: str) -> dict[str, Any]:
-        """Call Dropbox's ``/2/files/list_folder/continue`` endpoint."""
+        """Return the next page from a ``list_folder`` cursor."""
         return await self._require_files().list_folder_continue(cursor)
 
     @asynccontextmanager
@@ -215,9 +215,14 @@ class AsyncDropbox:
         self,
         path: str,
     ) -> AsyncIterator[DownloadResponse]:
-        """Call Dropbox's ``/2/files/download`` endpoint.
+        """Stream a Dropbox file download.
 
-        Consume the result inside the returned async context manager.
+        The response stream must be consumed within the context manager.
+
+        Example:
+            async with dbx.files_download("/report.csv") as response:
+                async for chunk in response.iter_bytes():
+                    ...
         """
         async with self._require_files().download(path) as response:
             yield response
@@ -235,7 +240,10 @@ class AsyncDropbox:
         strict_conflict: bool = False,
         content_hash: str | None = None,
     ) -> dict[str, Any]:
-        """Call Dropbox's ``/2/files/upload`` endpoint."""
+        """Upload raw ContentBytes using the simple upload endpoint.
+
+        Content must not be larger than SIMPLE_UPLOAD_MAX_BYTES.
+        """
         return await self._require_files().upload(
             f,
             path,
@@ -246,34 +254,6 @@ class AsyncDropbox:
             property_groups=property_groups,
             strict_conflict=strict_conflict,
             content_hash=content_hash,
-        )
-
-    async def files_upload_path(
-        self,
-        source: LocalPath,
-        path: str,
-        *,
-        mode: str | dict[str, Any] = "add",
-        autorename: bool = False,
-        client_modified: str | None = None,
-        mute: bool = False,
-        property_groups: list[dict[str, Any]] | None = None,
-        strict_conflict: bool = False,
-        content_hash: str | None = None,
-        chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
-    ) -> dict[str, Any]:
-        """Upload a local file using simple upload or a managed upload session."""
-        return await self._require_files().upload_path(
-            source,
-            path,
-            mode=mode,
-            autorename=autorename,
-            client_modified=client_modified,
-            mute=mute,
-            property_groups=property_groups,
-            strict_conflict=strict_conflict,
-            content_hash=content_hash,
-            chunk_size=chunk_size,
         )
 
     async def files_upload_session_start(
@@ -376,12 +356,59 @@ class AsyncDropbox:
         chunk_size: int = 1024 * 1024,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        """Download a Dropbox file to a local path atomically."""
+        """Download a Dropbox file to a local destination atomically.
+
+        The method validates that a non-overwritable local destination does not
+        already exist before opening the remote Dropbox response. It then streams
+        to a sibling temporary file and atomically replaces the destination only
+        after transfer completion.
+
+        Returns:
+            File metadata supplied by Dropbox in ``Dropbox-API-Result``.
+        """
         return await self._require_files().download_to_path(
             path,
             destination,
             chunk_size=chunk_size,
             overwrite=overwrite,
+        )
+
+    async def files_upload_path(
+        self,
+        source: LocalPath,
+        path: str,
+        *,
+        mode: str | dict[str, Any] = "add",
+        autorename: bool = False,
+        client_modified: str | None = None,
+        mute: bool = False,
+        property_groups: list[dict[str, Any]] | None = None,
+        strict_conflict: bool = False,
+        content_hash: str | None = None,
+        chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    ) -> dict[str, Any]:
+        """Upload a local file with simple upload or a managed upload session.
+
+        Files no larger than Dropbox's simple-upload limit are read once and sent
+        through ``files/upload``. Larger files are read in bounded chunks and sent
+        through an upload session. The helper owns the session cursor only for the
+        lifetime of this call; it does not persist resumable upload state.
+
+        Upload blocks are deliberately not retried after ambiguous transport or
+        server failures, because Dropbox may have accepted a block even when the
+        client did not receive a response.
+        """
+        return await self._require_files().upload_path(
+            source,
+            path,
+            mode=mode,
+            autorename=autorename,
+            client_modified=client_modified,
+            mute=mute,
+            property_groups=property_groups,
+            strict_conflict=strict_conflict,
+            content_hash=content_hash,
+            chunk_size=chunk_size,
         )
 
     def _require_users(self) -> UsersNamespace:

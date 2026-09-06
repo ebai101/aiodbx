@@ -12,7 +12,7 @@ class UsersNamespace:
         self._transport = transport
 
     async def get_current_account(self) -> dict[str, Any]:
-        """Return metadata for the account associated with this access token."""
+        """Call Dropbox's ``/2/users/get_current_account`` endpoint."""
         return await self._transport.rpc(
             "/2/users/get_current_account",
             {},

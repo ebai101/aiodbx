@@ -36,7 +36,7 @@ class FilesNamespace:
         include_deleted: bool = False,
         include_has_explicit_shared_members: bool = False,
     ) -> dict[str, Any]:
-        """Return metadata for a Dropbox file or folder."""
+        """Call Dropbox's ``/2/files/get_metadata`` endpoint."""
         validate_non_root_path(path)
         return await self._transport.rpc(
             "/2/files/get_metadata",
@@ -62,7 +62,7 @@ class FilesNamespace:
         include_mounted_folders: bool = True,
         limit: int | None = None,
     ) -> dict[str, Any]:
-        """Return one page of entries in a Dropbox folder."""
+        """Call Dropbox's ``/2/files/list_folder`` endpoint."""
         arg: dict[str, Any] = {
             "path": path,
             "recursive": recursive,
@@ -79,7 +79,7 @@ class FilesNamespace:
         return await self._transport.rpc("/2/files/list_folder", arg, retryable=True)
 
     async def list_folder_continue(self, cursor: str) -> dict[str, Any]:
-        """Return the next page from a ``list_folder`` cursor."""
+        """Call Dropbox's ``/2/files/list_folder/continue`` endpoint."""
         return await self._transport.rpc(
             "/2/files/list_folder/continue", {"cursor": cursor}, retryable=True
         )
@@ -123,14 +123,9 @@ class FilesNamespace:
         self,
         path: str,
     ) -> AsyncIterator[DownloadResponse]:
-        """Stream a Dropbox file download.
+        """Call Dropbox's ``/2/files/download`` endpoint.
 
-        The response stream must be consumed within the context manager.
-
-        Example:
-            async with dbx.files.download("/report.csv") as response:
-                async for chunk in response.iter_bytes():
-                    ...
+        Consume the result inside the returned async context manager.
         """
         validate_non_root_path(path)
 
@@ -147,16 +142,7 @@ class FilesNamespace:
         chunk_size: int = 1024 * 1024,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        """Download a Dropbox file to a local destination atomically.
-
-        The method validates that a non-overwritable local destination does not
-        already exist before opening the remote Dropbox response. It then streams
-        to a sibling temporary file and atomically replaces the destination only
-        after transfer completion.
-
-        Returns:
-            File metadata supplied by Dropbox in ``Dropbox-API-Result``.
-        """
+        """Download a Dropbox file to a local path atomically."""
         final_path = await ensure_destination_available(
             destination,
             overwrite=overwrite,
@@ -223,17 +209,7 @@ class FilesNamespace:
         content_hash: str | None = None,
         chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
     ) -> dict[str, Any]:
-        """Upload a local file with simple upload or a managed upload session.
-
-        Files no larger than Dropbox's simple-upload limit are read once and sent
-        through ``files/upload``. Larger files are read in bounded chunks and sent
-        through an upload session. The helper owns the session cursor only for the
-        lifetime of this call; it does not persist resumable upload state.
-
-        Upload blocks are deliberately not retried after ambiguous transport or
-        server failures, because Dropbox may have accepted a block even when the
-        client did not receive a response.
-        """
+        """Upload a local file using simple upload or a managed upload session."""
         validate_non_root_path(path)
         _validate_upload_chunk_size(chunk_size)
 
