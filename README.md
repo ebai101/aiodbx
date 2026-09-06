@@ -45,7 +45,7 @@ def dropbox_content_hash(data: bytes) -> str:
     return overall.hexdigest()
 
 
-async def main() -> None:
+async def main():
     token = os.environ["AIODBX_ACCESS_TOKEN"]
     remote_path = "/aiodbx-example.txt"
     local_path = Path("aiodbx-example.txt")
@@ -87,7 +87,7 @@ import os
 from aiodbx import AsyncDropbox
 
 
-async def main() -> None:
+async def main():
     async with AsyncDropbox(os.environ["AIODBX_ACCESS_TOKEN"]) as dbx:
         async with dbx.files_download("/reports/latest.csv") as download:
             print(download.metadata["name"])
@@ -109,51 +109,161 @@ await dbx.files_download_to_path(
 )
 ```
 
-## Upload sessions
+## Uploading files
 
-Use upload sessions when data must be sent in multiple blocks, such as when building a streaming or resumable upload workflow. These are direct wrappers around Dropbox's upload-session endpoints:
+Use `files_upload_path()` to upload one local file. It uses Dropbox's simple upload endpoint for files within Dropbox's simple-upload limit and uses a managed upload session for larger files.
 
-- `files_upload_session_start`
-- `files_upload_session_append_v2`
-- `files_upload_session_finish`
-
-Each call accepts one in-memory bytes-like block (`bytes`, `bytearray`, or `memoryview`). `aiodbx` does not automatically retry a block upload after an ambiguous transport or server failure: Dropbox may have received the block and advanced the remote session offset. If an application needs recovery behavior, it should persist the session ID and the last **confirmed** offset.
-
-This example uploads three blocks. `files_upload_session_finish()` sends the final block and commits the completed session to a Dropbox path, so do not append the final block separately.
+The helper reads large sources in bounded chunks. It owns the upload session only for the duration of the call; it does not persist resumable upload state or retry a body-bearing request after an ambiguous transport or server failure.
 
 ```python
-async with AsyncDropbox(token) as dbx:
-    first = b"first block\n"
-    middle = b"middle block\n"
-    last = b"last block\n"
+from __future__ import annotations
 
-    started = await dbx.files_upload_session_start(first)
-    cursor = {
-        "session_id": started["session_id"],
-        "offset": len(first),
-    }
+import asyncio
+import os
 
-    await dbx.files_upload_session_append_v2(cursor, middle)
-    cursor["offset"] += len(middle)
+from anyio import Path
 
-    metadata = await dbx.files_upload_session_finish(
-        cursor,
-        {
-            "path": "/upload-session-example.txt",
-            "mode": "overwrite",
-            "autorename": False,
-            "mute": False,
-            "strict_conflict": False,
-        },
-        last,
-    )
+from aiodbx import AsyncDropbox
 
-print(f"Uploaded {metadata['path_display']} ({metadata['size']} bytes)")
+
+async def main():
+    source = Path("dist/release.tar.zst")
+
+    async with AsyncDropbox(os.environ["AIODBX_ACCESS_TOKEN"]) as dbx:
+        metadata = await dbx.files_upload_path(
+            source,
+            "/releases/release.tar.zst",
+            mode="overwrite",
+        )
+
+    print(f"Uploaded {metadata['path_display']} ({metadata['size']} bytes)")
+
+
+asyncio.run(main())
 ```
 
-For a one-block upload session, call `files_upload_session_start()` with an empty body, then call `files_upload_session_finish()` with the complete payload. In normal application code, prefer `files_upload()` for small in-memory content. A future `files_upload_path()` helper will stream local files in bounded chunks rather than loading the full file into memory.
+Use `files_upload()` when the content is already available in-memory:
 
-## Implemented endpoints
+```python
+metadata = await dbx.files_upload(
+    b"generated report\n",
+    "/reports/latest.txt",
+    mode="overwrite",
+)
+```
+
+## Batch-uploading local files
+
+Use `files_upload_paths()` to stream and batch-commit several local files. Pass each source/destination pair as an `UploadPath`.
+
+```python
+from __future__ import annotations
+
+import asyncio
+import os
+
+from anyio import Path
+
+from aiodbx import AsyncDropbox, UploadPath
+
+
+async def main():
+    uploads = [
+        UploadPath(
+            Path("dist/client-one.tar.zst"),
+            "/releases/client-one.tar.zst",
+        ),
+        UploadPath(
+            Path("dist/client-two.tar.zst"),
+            "/releases/client-two.tar.zst",
+        ),
+    ]
+
+    async with AsyncDropbox(os.environ["AIODBX_ACCESS_TOKEN"]) as dbx:
+        result = await dbx.files_upload_paths(
+            uploads,
+            mode="overwrite",
+            chunk_size=4 * 1024 * 1024,
+        )
+
+    assert result[".tag"] == "complete"
+
+    for entry in result["entries"]:
+        if entry[".tag"] == "success":
+            metadata = entry["success"]
+            print(f"Uploaded {metadata['path_display']}")
+        else:
+            print(f"Batch entry failed: {entry}")
+
+
+asyncio.run(main())
+```
+
+Every `files_upload_paths()` member uses a Dropbox upload session, including small and empty files. The helper streams sources sequentially in bounded chunks, closes every session before finalization, then commits the sessions through Dropbox's batch session API.
+
+The helper returns the result of the `/upload_session/finish_batch` request. This request may contain failed entries even if it's successful; be sure to inspect the contents of  `result["entries"]`.
+
+Like `files_upload_path()`, this helper does not persist session IDs and does not retry body-bearing upload-session requests after an ambiguous failure. It does retry safe status polling for Dropbox batch jobs according to the client retry policy.
+
+## Advanced upload sessions
+
+Use the low-level `files_upload_session` methods for more granular control over the upload session lifetime:
+
+- `files_upload_session_start()`
+- `files_upload_session_append_v2()`
+- `files_upload_session_finish()`
+- `files_upload_session_finish_batch()`
+- `files_upload_session_finish_batch_check()`
+
+Each body-bearing session call accepts one in-memory bytes-like block. `aiodbx` does not automatically retry a start, append, or finish request after a timeout, connection failure, or transient server response because Dropbox may have received the block and advanced the remote session state.
+
+```python
+first = b"first block"
+middle = b"middle block"
+last = b"final block"
+
+started = await dbx.files_upload_session_start(first)
+
+cursor = {
+    "session_id": started["session_id"],
+    "offset": len(first),
+}
+
+await dbx.files_upload_session_append_v2(cursor, middle)
+cursor["offset"] += len(middle)
+
+metadata = await dbx.files_upload_session_finish(
+    cursor,
+    {
+        "path": "/uploads/example.bin",
+        "mode": "overwrite",
+        "autorename": False,
+        "mute": False,
+        "strict_conflict": False,
+    },
+    last,
+)
+```
+
+
+## Requesting unimplemented endpoints
+
+`AsyncDropbox.rpc()` provides access to Dropbox JSON-RPC endpoints that do not yet have a first-class `aiodbx` method:
+
+```python
+result = await dbx.rpc(
+    "/2/users/get_space_usage",
+    {},
+)
+```
+
+`rpc()` sends a JSON-object payload to `api.dropboxapi.com` and returns a raw JSON-object response. It uses the same token, timeouts, retry policy, and exception mapping as named client methods.
+
+It does not support Dropbox content-upload, content-download, or long-poll endpoints. Those endpoint types use different wire formats and should be accessed through dedicated methods.
+
+## Implementation table
+
+### Single endpoint methods
 
 | Method | Dropbox endpoint |
 |---|---|
@@ -172,25 +282,12 @@ For a one-block upload session, call `files_upload_session_start()` with an empt
 | `files_upload_session_finish_batch_check()` | `/2/files/upload_session/finish_batch/check` |
 
 
-## Helper functions
+### Helpers
 
+These helpers orchestrate the above methods for convenience, and do not correspond directly to single endpoints.
 | Method | Behavior |
-|---|---|
-| `files_list_folder_iter()` | Iterates through all pages from `files_list_folder()` |
-| `files_download_to_path()` | Streams a Dropbox file to a local path | 
-
-
-## Requesting unimplemented endpoints
-
-`AsyncDropbox.rpc()` provides access to Dropbox JSON-RPC endpoints that do not yet have a first-class `aiodbx` method:
-
-```python
-result = await dbx.rpc(
-    "/2/users/get_space_usage",
-    {},
-)
-```
-
-`rpc()` sends a JSON-object payload to `api.dropboxapi.com` and returns a raw JSON-object response. It uses the same token, timeouts, retry policy, and exception mapping as named client methods.
-
-It does not support Dropbox content-upload, content-download, or long-poll endpoints. Those endpoint types use different wire formats and should be accessed through dedicated methods.
+| --- | --- |
+| `files_list_folder_iter` | Iterates through all pages from `files_list_folder` |
+| `files_download_to_path` | Streams a Dropbox file to a local path atomically |
+| `files_upload_path` | Uploads one local file, using simple upload or a managed session |
+| `files_upload_paths` | Streams local files into sessions and batch-commits them |
