@@ -2,8 +2,8 @@
   "output": {
     "filePath": "repomix-output.xml",
     "style": "xml",
-    "removeComments": false,
-    "removeEmptyLines": false,
+    "removeComments": true,
+    "removeEmptyLines": true,
     "topFilesLength": 5,
     "showLineNumbers": false,
     "copyToClipboard": false
