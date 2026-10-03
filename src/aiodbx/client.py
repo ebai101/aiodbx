@@ -8,7 +8,7 @@ from typing import Any, Self, overload
 import aiohttp
 
 from .downloads import DownloadResponse
-from .files import DEFAULT_UPLOAD_CHUNK_SIZE, FilesNamespace, UploadPath
+from .files import DEFAULT_UPLOAD_CHUNK_SIZE, FilesNamespace, SharedLink, UploadPath
 from .filesystem import LocalPath
 from .hosts import EndpointHosts
 from .oauth import (
@@ -18,6 +18,7 @@ from .oauth import (
     _StaticToken,
 )
 from .retry import RetryPolicy
+from .sharing import SharingNamespace
 from .transport import DropboxTransport
 from .users import UsersNamespace
 
@@ -105,6 +106,7 @@ class AsyncDropbox:
         self._transport: DropboxTransport | None = None
         self._users: UsersNamespace | None = None
         self._files: FilesNamespace | None = None
+        self._sharing: SharingNamespace | None = None
 
     async def start(self) -> None:
         """Open the underlying HTTP session if it is not already open."""
@@ -143,6 +145,7 @@ class AsyncDropbox:
         self._transport = transport
         self._users = UsersNamespace(transport)
         self._files = FilesNamespace(transport)
+        self._sharing = SharingNamespace(transport)
 
     async def aclose(self) -> None:
         """Close the underlying HTTP session.
@@ -154,6 +157,7 @@ class AsyncDropbox:
         self._transport = None
         self._users = None
         self._files = None
+        self._sharing = None
 
         try:
             if transport is not None:
@@ -237,6 +241,7 @@ class AsyncDropbox:
         include_has_explicit_shared_members: bool = False,
         include_mounted_folders: bool = True,
         limit: int | None = None,
+        shared_link: SharedLink | None = None,
     ) -> dict[str, Any]:
         """Return one page of entries in a Dropbox folder."""
         return await self._require_files().list_folder(
@@ -247,7 +252,15 @@ class AsyncDropbox:
             include_has_explicit_shared_members=include_has_explicit_shared_members,
             include_mounted_folders=include_mounted_folders,
             limit=limit,
+            shared_link=shared_link,
         )
+
+    async def sharing_get_shared_link_metadata(
+        self,
+        shared_link: SharedLink,
+    ) -> dict[str, Any]:
+        """Return metadata for the Dropbox shared link, including root name and tag."""
+        return await self._require_sharing().get_shared_link_metadata(shared_link)
 
     async def files_list_folder_continue(self, cursor: str) -> dict[str, Any]:
         """Return the next page from a ``list_folder`` cursor."""
@@ -385,10 +398,14 @@ class AsyncDropbox:
     async def files_list_folder_iter(
         self,
         path: str = "",
+        *,
+        shared_link: SharedLink | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield every result from ``files_list_folder`` pagination."""
-        async for entry in self._require_files().iter_folder(path, **kwargs):
+        async for entry in self._require_files().iter_folder(
+            path, shared_link=shared_link, **kwargs
+        ):
             yield entry
 
     async def files_download_to_path(
@@ -487,6 +504,11 @@ class AsyncDropbox:
         self._require_started()
         assert self._files is not None
         return self._files
+
+    def _require_sharing(self) -> SharingNamespace:
+        self._require_started()
+        assert self._sharing is not None
+        return self._sharing
 
     def _require_transport(self) -> DropboxTransport:
         self._require_started()

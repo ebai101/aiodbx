@@ -11,7 +11,7 @@ from .errors import (
     DropboxRateLimitError,
     DropboxTransportError,
 )
-from .files import UploadPath
+from .files import SharedLink, UploadPath
 from .oauth import oauth_authorization_url, oauth_exchange_code
 from .retry import RetryPolicy
 
@@ -29,6 +29,7 @@ __all__ = [
     "DropboxRateLimitError",
     "DropboxTransportError",
     "RetryPolicy",
+    "SharedLink",
     "UploadPath",
     "oauth_authorization_url",
     "oauth_exchange_code",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from aiodbx import AsyncDropbox, ClientConfig
@@ -42,6 +44,9 @@ async def test_endpoint_calls_require_started_client() -> None:
 
     with pytest.raises(RuntimeError, match="not started"):
         await dbx.files_list_folder()
+
+    with pytest.raises(RuntimeError, match="not started"):
+        await dbx.sharing_get_shared_link_metadata(cast(Any, None))
 
 
 @pytest.mark.asyncio
