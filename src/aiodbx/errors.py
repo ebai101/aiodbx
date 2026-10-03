@@ -67,6 +67,10 @@ class DropboxAuthenticationError(DropboxError):
     """Dropbox rejected the supplied access token or authorization."""
 
 
+class DropboxOAuthError(DropboxAuthenticationError):
+    """A token grant failed; error_tag contains a safe OAuth string code."""
+
+
 class DropboxPermissionError(DropboxError):
     """The account is not permitted to perform the requested operation."""
 

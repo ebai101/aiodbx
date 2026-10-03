@@ -4,6 +4,16 @@ import random
 from dataclasses import dataclass
 
 
+def parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header value, or return ``None`` when unusable."""
+    if value is None:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Backoff settings for retry-safe Dropbox transport operations.
