@@ -116,7 +116,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`oauth_authorization_url` always requests `token_access_type=offline`, so the exchange returns a refresh token. Pass a `code_verifier` to both calls to use PKCE S256. Omit it for a confidential app that can keep its app secret.
+`oauth_authorization_url` always requests `token_access_type=offline`, so the exchange returns a refresh token. Pass the same `code_verifier` to both calls to add PKCE S256. The token request authenticates with HTTP Basic and the app secret, so this path targets confidential apps. Public clients without a secret are not supported yet.
 
 ### Using the refresh token
 

@@ -225,3 +225,17 @@ async def test_concurrent_exchanges_do_not_cross_state(aiohttp_server) -> None:
 
     assert set(seen) == {"code-a", "code-b"}
     assert {first, second} == {"refresh-code-a", "refresh-code-b"}
+
+
+async def test_exchange_returns_refresh_token_without_lease_fields(
+    token_hosts,
+) -> None:
+    async def token(request: web.Request) -> web.Response:
+        return web.json_response({"refresh_token": "refresh-only"})
+
+    async with token_hosts(token) as hosts:
+        refresh_token = await oauth_exchange_code(
+            "code", app_key=APP_KEY, app_secret=APP_SECRET, _hosts=hosts
+        )
+
+    assert refresh_token == "refresh-only"

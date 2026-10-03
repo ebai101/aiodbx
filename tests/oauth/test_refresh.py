@@ -249,7 +249,7 @@ async def test_shared_failed_refresh_reports_to_all_waiters(client_factory) -> N
     assert all(isinstance(result, DropboxOAuthError) for result in results)
 
 
-async def test_aclose_cancels_inflight_refresh(client_factory) -> None:
+async def test_aclose_reports_closed_to_inflight_refresh(client_factory) -> None:
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -271,8 +271,35 @@ async def test_aclose_cancels_inflight_refresh(client_factory) -> None:
         task = asyncio.create_task(dbx.users_get_current_account())
         await started.wait()
         await dbx.aclose()
+        with pytest.raises(RuntimeError, match="closed"):
+            await task
+
+
+async def test_cancelling_a_waiter_is_not_swallowed(client_factory) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def token(request: web.Request) -> web.Response:
+        started.set()
+        await release.wait()
+        return _token_response("access-1")
+
+    async def account(request: web.Request) -> web.Response:
+        return web.json_response({})
+
+    async with client_factory(
+        {"/oauth2/token": token, "/2/users/get_current_account": account},
+        app_key=APP_KEY,
+        app_secret=APP_SECRET,
+        refresh_token=REFRESH,
+        content_host=False,
+    ) as dbx:
+        task = asyncio.create_task(dbx.users_get_current_account())
+        await started.wait()
+        task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+        release.set()
 
 
 async def test_restart_mints_a_fresh_token(client_factory) -> None:
@@ -343,3 +370,123 @@ async def test_clients_do_not_share_token_state(aiohttp_server) -> None:
         await second.users_get_current_account()
 
     assert count == 2
+
+
+async def test_refresh_retries_non_json_429_with_retry_after(
+    client_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    calls = 0
+
+    async def token(request: web.Request) -> web.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return web.Response(
+                status=429, text="slow down", headers={"Retry-After": "2.5"}
+            )
+        return _token_response("access-1")
+
+    async def account(request: web.Request) -> web.Response:
+        return web.json_response({"account_id": "dbid:x"})
+
+    async with client_factory(
+        {"/oauth2/token": token, "/2/users/get_current_account": account},
+        app_key=APP_KEY,
+        app_secret=APP_SECRET,
+        refresh_token=REFRESH,
+        content_host=False,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+    ) as dbx:
+        result = await dbx.users_get_current_account()
+
+    assert result == {"account_id": "dbid:x"}
+    assert calls == 2
+    assert delays == [2.5]
+
+
+async def test_refresh_retries_body_read_failure(client_factory) -> None:
+    calls = 0
+
+    async def token(request: web.Request) -> web.StreamResponse:
+        nonlocal calls
+        calls += 1
+
+        if calls == 1:
+            response = web.StreamResponse(headers={"Content-Type": "application/json"})
+            await response.prepare(request)
+            await response.write(b'{"access_token": "a",')
+            if request.transport:
+                request.transport.close()
+            return response
+
+        return _token_response("access-1")
+
+    async def account(request: web.Request) -> web.Response:
+        return web.json_response({"account_id": "dbid:x"})
+
+    async with client_factory(
+        {"/oauth2/token": token, "/2/users/get_current_account": account},
+        app_key=APP_KEY,
+        app_secret=APP_SECRET,
+        refresh_token=REFRESH,
+        content_host=False,
+        retry_policy=RetryPolicy(max_attempts=2, base_delay=0),
+    ) as dbx:
+        result = await dbx.users_get_current_account()
+
+    assert result == {"account_id": "dbid:x"}
+    assert calls == 2
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"expires_in": 100, "token_type": "bearer"},
+        {"access_token": "", "expires_in": 100, "token_type": "bearer"},
+        {"access_token": "a", "expires_in": True, "token_type": "bearer"},
+        {"access_token": "a", "expires_in": 0, "token_type": "bearer"},
+        {"access_token": "a", "expires_in": 100, "token_type": "mac"},
+    ],
+)
+async def test_refresh_rejects_malformed_lease(client_factory, payload) -> None:
+    async def token(request: web.Request) -> web.Response:
+        return web.json_response(payload)
+
+    async def account(request: web.Request) -> web.Response:
+        return web.json_response({})
+
+    async with client_factory(
+        {"/oauth2/token": token, "/2/users/get_current_account": account},
+        app_key=APP_KEY,
+        app_secret=APP_SECRET,
+        refresh_token=REFRESH,
+        content_host=False,
+    ) as dbx:
+        with pytest.raises(DropboxProtocolError):
+            await dbx.users_get_current_account()
+
+
+async def test_refresh_rejects_overflowing_expiry(client_factory) -> None:
+    async def token(request: web.Request) -> web.Response:
+        return web.json_response(
+            {"access_token": "a", "expires_in": 10**400, "token_type": "bearer"}
+        )
+
+    async def account(request: web.Request) -> web.Response:
+        return web.json_response({})
+
+    async with client_factory(
+        {"/oauth2/token": token, "/2/users/get_current_account": account},
+        app_key=APP_KEY,
+        app_secret=APP_SECRET,
+        refresh_token=REFRESH,
+        content_host=False,
+    ) as dbx:
+        with pytest.raises(DropboxProtocolError):
+            await dbx.users_get_current_account()

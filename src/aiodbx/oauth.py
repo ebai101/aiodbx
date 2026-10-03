@@ -20,7 +20,20 @@ from .errors import (
     DropboxTransportError,
 )
 from .hosts import EndpointHosts
-from .retry import RetryPolicy
+from .retry import RetryPolicy, parse_retry_after
+
+_OAUTH_ERROR_CODES = frozenset(
+    {
+        "invalid_grant",
+        "invalid_client",
+        "invalid_request",
+        "invalid_scope",
+        "unauthorized_client",
+        "unsupported_grant_type",
+        "access_denied",
+        "server_error",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +85,12 @@ def oauth_authorization_url(
     scopes: Sequence[str] | None = None,
     code_verifier: str | None = None,
 ) -> str:
+    """Build the offline authorization URL to send the user to.
+
+    Always requests ``response_type=code`` and ``token_access_type=offline`` so
+    the exchange returns a refresh token. Pass ``code_verifier`` to use PKCE
+    S256, and pass the same value to :func:`oauth_exchange_code`.
+    """
     _validate_nonempty(app_key, "app_key")
     _validate_nonempty(state, "state")
     params = {
@@ -125,15 +144,6 @@ def _credential_from_arguments(
     return _RefreshCredentials(app_key, app_secret, refresh_token)
 
 
-def _parse_retry_after(value: str | None) -> float | None:
-    if value is None:
-        return None
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        return None
-
-
 def _basic_auth_header(app_key: str, app_secret: str) -> str:
     credentials = f"{app_key}:{app_secret}".encode()
     return "Basic " + base64.b64encode(credentials).decode("ascii")
@@ -141,6 +151,11 @@ def _basic_auth_header(app_key: str, app_secret: str) -> str:
 
 def _now() -> float:
     return asyncio.get_running_loop().time()
+
+
+def _is_cancelling() -> bool:
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
 
 
 def _parse_access_lease(
@@ -163,13 +178,30 @@ def _parse_access_lease(
         raise DropboxProtocolError(
             message="Dropbox OAuth response is invalid."
         ) from None
-    expires = started_at + lifetime
+    try:
+        expires = started_at + lifetime
+    except OverflowError:
+        raise DropboxProtocolError(
+            message="Dropbox OAuth response is invalid."
+        ) from None
     refresh = expires - min(60.0, lifetime / 10.0)
-    if not math.isfinite(expires) or not math.isfinite(refresh) or _now() >= refresh:
+    if not math.isfinite(expires) or not math.isfinite(refresh) or _now() >= expires:
         raise DropboxProtocolError(
             message="Dropbox OAuth response is stale or invalid."
         )
     return _AccessLease(token, expires, refresh)
+
+
+async def _oauth_error_code(response: aiohttp.ClientResponse) -> str | None:
+    try:
+        payload = await response.json(content_type=None)
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        return None
+    if isinstance(payload, dict):
+        code = payload.get("error")
+        if isinstance(code, str):
+            return code
+    return None
 
 
 async def _post_grant(
@@ -186,53 +218,51 @@ async def _post_grant(
             data=dict(form),
             headers={"Authorization": _basic_auth_header(app_key, app_secret)},
         ) as response:
-            try:
-                payload = await response.json(content_type=None)
-            except Exception:
-                raise DropboxProtocolError(
-                    message="Dropbox OAuth response is invalid.",
-                    status_code=response.status,
-                ) from None
-            if not isinstance(payload, dict):
-                raise DropboxProtocolError(
-                    message="Dropbox OAuth response is invalid.",
-                    status_code=response.status,
-                ) from None
-            if response.status in (400, 401):
-                code = payload.get("error")
-                known = {
-                    "invalid_grant",
-                    "invalid_client",
-                    "invalid_request",
-                    "invalid_scope",
-                    "unauthorized_client",
-                    "unsupported_grant_type",
-                    "access_denied",
-                    "server_error",
-                }
+            status = response.status
+
+            if 200 <= status < 300:
+                try:
+                    payload = await response.json(content_type=None)
+                except (aiohttp.ClientError, TimeoutError):
+                    raise
+                except ValueError:
+                    raise DropboxProtocolError(
+                        message="Dropbox OAuth response is invalid.",
+                        status_code=status,
+                    ) from None
+                if not isinstance(payload, dict):
+                    raise DropboxProtocolError(
+                        message="Dropbox OAuth response is invalid.",
+                        status_code=status,
+                    ) from None
+                return payload
+
+            if status in (400, 401):
+                code = await _oauth_error_code(response)
                 raise DropboxOAuthError(
                     message="Dropbox OAuth grant failed.",
-                    status_code=response.status,
+                    status_code=status,
                     error_tag=code
-                    if isinstance(code, str) and code in known
+                    if code in _OAUTH_ERROR_CODES
                     else "unknown_oauth_error",
                 ) from None
-            if response.status == 429:
+
+            if status == 429:
                 raise DropboxRateLimitError(
                     message="Dropbox OAuth grant failed.",
-                    status_code=429,
-                    retry_after=_parse_retry_after(response.headers.get("Retry-After")),
+                    status_code=status,
+                    retry_after=parse_retry_after(response.headers.get("Retry-After")),
                 ) from None
-            if response.status >= 500:
+
+            if status >= 500:
                 raise DropboxError(
-                    message="Dropbox OAuth grant failed.", status_code=response.status
+                    message="Dropbox OAuth grant failed.", status_code=status
                 ) from None
-            if response.status < 200 or response.status >= 300:
-                raise DropboxProtocolError(
-                    message="Dropbox OAuth response is invalid.",
-                    status_code=response.status,
-                ) from None
-            return payload
+
+            raise DropboxProtocolError(
+                message="Dropbox OAuth response is invalid.",
+                status_code=status,
+            ) from None
     except asyncio.CancelledError:
         raise
     except DropboxError:
@@ -250,6 +280,11 @@ async def oauth_exchange_code(
     code_verifier: str | None = None,
     _hosts: EndpointHosts | None = None,
 ) -> str:
+    """Exchange an authorization code for its durable refresh token.
+
+    The code is single use and the exchange is not retried. Pass the same
+    ``redirect_uri`` and ``code_verifier`` used to build the authorization URL.
+    """
     for value, name in (
         (code, "code"),
         (app_key, "app_key"),
@@ -267,7 +302,6 @@ async def oauth_exchange_code(
         form["code_verifier"] = code_verifier
     timeout = aiohttp.ClientTimeout(total=120, connect=10, sock_read=90)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        started = _now()
         payload = await _post_grant(
             session,
             hosts=_hosts or EndpointHosts(),
@@ -275,7 +309,6 @@ async def oauth_exchange_code(
             app_secret=app_secret,
             form=form,
         )
-        _parse_access_lease(payload, started_at=started)
         token = payload.get("refresh_token")
         if not isinstance(token, str) or not token:
             raise DropboxProtocolError(
@@ -309,7 +342,12 @@ class _TokenManager:
         if self._flight is None or self._flight.done():
             self._flight = asyncio.create_task(self._refresh())
             self._flight.add_done_callback(self._observe_completion)
-        return await asyncio.shield(self._flight)
+        try:
+            return await asyncio.shield(self._flight)
+        except asyncio.CancelledError:
+            if self._closed and not _is_cancelling():
+                raise RuntimeError("OAuth token owner is closed.") from None
+            raise
 
     async def after_expired_rejection(self, rejected: _AccessLease) -> _AccessLease:
         if self._closed:
