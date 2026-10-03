@@ -335,6 +335,23 @@ result = await dbx.rpc(
 
 It does not support Dropbox content-upload, content-download, or long-poll endpoints. Those endpoint types use different wire formats and should be accessed through dedicated methods.
 
+## Listing a shared link
+
+Create a `SharedLink` with its URL and optional password, then retrieve the link root metadata and list entries relative to that root:
+
+```python
+from aiodbx import SharedLink
+
+link = SharedLink("https://www.dropbox.com/s/example/shared-file")
+metadata = await dbx.sharing_get_shared_link_metadata(link)
+print(metadata["name"], metadata[".tag"])
+
+async for entry in dbx.files_list_folder_iter("", shared_link=link):
+    print(entry["name"])
+```
+
+The `path` is relative to the link root, and shared-link listings are non-recursive only. Entries may omit or mis-express `path_display`, so build paths from each entry's `name`. Listing requires the `files.metadata.read` OAuth scope. Metadata also requires `sharing.read`.
+
 ## Implementation table
 
 ### Single endpoint methods
@@ -342,6 +359,7 @@ It does not support Dropbox content-upload, content-download, or long-poll endpo
 | Method | Dropbox endpoint |
 |---|---|
 | `users_get_current_account()` | `/2/users/get_current_account` |
+| `sharing_get_shared_link_metadata()` | `/2/sharing/get_shared_link_metadata` |
 | `files_get_metadata()` | `/2/files/get_metadata` |
 | `files_list_folder()` | `/2/files/list_folder` |
 | `files_list_folder_continue()` | `/2/files/list_folder/continue` |
@@ -361,7 +379,7 @@ It does not support Dropbox content-upload, content-download, or long-poll endpo
 These helpers orchestrate the above methods for convenience, and do not correspond directly to single endpoints.
 | Method | Behavior |
 | --- | --- |
-| `files_list_folder_iter` | Iterates through all pages from `files_list_folder` |
+| `files_list_folder_iter` | Iterates all pages from `files_list_folder`. Accepts a `shared_link` and does not walk subfolders |
 | `files_download_to_path` | Streams a Dropbox file to a local path atomically |
 | `files_upload_path` | Uploads one local file, using simple upload or a managed session |
 | `files_upload_paths` | Streams local files into sessions and batch-commits them |

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
 from anyio import Path
@@ -29,6 +29,22 @@ class UploadPath:
 
     source: LocalPath
     path: str
+
+
+@dataclass(frozen=True, slots=True)
+class SharedLink:
+    """A Dropbox shared link URL and, when the link has one, its password."""
+
+    url: str
+    password: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.url, str):
+            raise TypeError("url must be a string.")
+        if not self.url:
+            raise ValueError("url must not be empty.")
+        if self.password is not None and not isinstance(self.password, str):
+            raise TypeError("password must be a string or None.")
 
 
 class FilesNamespace:
@@ -70,8 +86,15 @@ class FilesNamespace:
         include_has_explicit_shared_members: bool = False,
         include_mounted_folders: bool = True,
         limit: int | None = None,
+        shared_link: SharedLink | None = None,
     ) -> dict[str, Any]:
         """Call Dropbox's ``/2/files/list_folder`` endpoint."""
+        if shared_link is not None:
+            _validate_shared_link(shared_link)
+            if recursive:
+                raise ValueError(
+                    "recursive is not supported when listing a shared link."
+                )
         arg: dict[str, Any] = {
             "path": path,
             "recursive": recursive,
@@ -84,6 +107,8 @@ class FilesNamespace:
         }
         if limit is not None:
             arg["limit"] = limit
+        if shared_link is not None:
+            arg["shared_link"] = _build_list_folder_shared_link(shared_link)
 
         return await self._transport.rpc("/2/files/list_folder", arg, retryable=True)
 
@@ -96,10 +121,12 @@ class FilesNamespace:
     async def iter_folder(
         self,
         path: str = "",
+        *,
+        shared_link: SharedLink | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield all entries in a folder, following Dropbox pagination."""
-        page = await self.list_folder(path, **kwargs)
+        page = await self.list_folder(path, shared_link=shared_link, **kwargs)
 
         while True:
             entries = page.get("entries", [])
@@ -667,3 +694,16 @@ def _build_upload_commit(
         commit["content_hash"] = content_hash
 
     return commit
+
+
+def _validate_shared_link(value: object) -> SharedLink:
+    if not isinstance(value, SharedLink):
+        raise TypeError("shared_link must be a SharedLink value.")
+    return value
+
+
+def _build_list_folder_shared_link(link: SharedLink) -> dict[str, str]:
+    arg = {"url": link.url}
+    if link.password is not None:
+        arg["password"] = link.password
+    return arg

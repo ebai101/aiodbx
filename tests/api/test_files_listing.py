@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from aiohttp import web
 
-from aiodbx import DropboxProtocolError
+from aiodbx import DropboxProtocolError, SharedLink
 
 
 @pytest.mark.asyncio
@@ -110,3 +112,77 @@ async def test_files_list_folder_iter_rejects_missing_cursor_when_more_results(
     ) as dbx:
         with pytest.raises(DropboxProtocolError, match="without a string cursor"):
             _ = [entry async for entry in dbx.files_list_folder_iter("")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("link", "expected_link"),
+    [
+        (
+            SharedLink("https://example.test/link", password="pw"),
+            {"url": "https://example.test/link", "password": "pw"},
+        ),
+        (SharedLink("https://example.test/link"), {"url": "https://example.test/link"}),
+    ],
+)
+async def test_files_list_folder_shared_link_body(
+    client_factory, link, expected_link
+) -> None:
+    async def handler(request: web.Request) -> web.Response:
+        assert await request.json() == {
+            "path": "",
+            "recursive": False,
+            "include_media_info": False,
+            "include_deleted": False,
+            "include_has_explicit_shared_members": False,
+            "include_mounted_folders": True,
+            "shared_link": expected_link,
+        }
+        return web.json_response({"entries": [], "has_more": False})
+
+    async with client_factory(
+        {"/2/files/list_folder": handler}, content_host=False
+    ) as dbx:
+        await dbx.files_list_folder(shared_link=link)
+
+
+@pytest.mark.asyncio
+async def test_files_list_folder_iter_shared_link_only_on_first_page(
+    client_factory,
+) -> None:
+    async def first(request: web.Request) -> web.Response:
+        body = await request.json()
+        assert body["shared_link"] == {"url": "https://example.test/link"}
+        return web.json_response({"entries": [], "cursor": "next", "has_more": True})
+
+    async def next_page(request: web.Request) -> web.Response:
+        assert await request.json() == {"cursor": "next"}
+        return web.json_response({"entries": [], "has_more": False})
+
+    async with client_factory(
+        {
+            "/2/files/list_folder": first,
+            "/2/files/list_folder/continue": next_page,
+        },
+        content_host=False,
+    ) as dbx:
+        assert [
+            entry
+            async for entry in dbx.files_list_folder_iter(
+                "", shared_link=SharedLink("https://example.test/link")
+            )
+        ] == []
+
+
+@pytest.mark.asyncio
+async def test_files_list_folder_shared_link_validation(client_factory) -> None:
+    async def handler(_: web.Request) -> web.Response:
+        pytest.fail("request should not be sent")
+
+    async with client_factory(
+        {"/2/files/list_folder": handler}, content_host=False
+    ) as dbx:
+        with pytest.raises(ValueError, match="recursive"):
+            await dbx.files_list_folder(shared_link=SharedLink("url"), recursive=True)
+        with pytest.raises(TypeError, match="SharedLink"):
+            await dbx.files_list_folder(shared_link=cast(Any, "url"))
