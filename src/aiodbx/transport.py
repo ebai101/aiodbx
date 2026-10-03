@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, TypeVar
 
 import aiohttp
 
@@ -27,9 +27,10 @@ from .oauth import (
     _StaticToken,
     _TokenManager,
 )
-from .retry import RetryPolicy
+from .retry import RetryPolicy, parse_retry_after
 
 ContentBody: TypeAlias = bytes | bytearray | memoryview
+_T = TypeVar("_T")
 
 
 class DropboxTransport:
@@ -177,20 +178,25 @@ class DropboxTransport:
             retryable=retryable,
         )
 
-    async def _request_json(
+    async def _perform_request(
         self,
         *,
         url: str,
         headers: Mapping[str, str],
+        retryable: bool,
+        finish: Callable[[aiohttp.ClientResponse], Awaitable[_T]],
         json_body: Mapping[str, Any] | None = None,
         data: ContentBody | None = None,
-        retryable: bool,
-    ) -> dict[str, Any]:
-        if (json_body is None) == (data is None):
-            raise ValueError("Pass exactly one of json_body or data.")
+    ) -> _T:
+        """Send one request and hand its 2xx response to ``finish``.
 
+        Retries transient failures according to the retry policy and replays the
+        request once after a definitive ``expired_access_token`` rejection. The
+        replay does not consume the ordinary retry budget.
+        """
         attempt = 1
         auth_replayed = False
+
         while True:
             bearer = await self._acquire_bearer()
             request_headers = self._authorization_headers(headers, bearer)
@@ -203,7 +209,7 @@ class DropboxTransport:
                     data=data,
                 ) as response:
                     if 200 <= response.status < 300:
-                        return await self._read_json(response)
+                        return await finish(response)
 
                     error = await self._build_error(response)
             except asyncio.CancelledError:
@@ -240,6 +246,30 @@ class DropboxTransport:
 
             raise error
 
+    async def _request_json(
+        self,
+        *,
+        url: str,
+        headers: Mapping[str, str],
+        json_body: Mapping[str, Any] | None = None,
+        data: ContentBody | None = None,
+        retryable: bool,
+    ) -> dict[str, Any]:
+        if (json_body is None) == (data is None):
+            raise ValueError("Pass exactly one of json_body or data.")
+
+        return await self._perform_request(
+            url=url,
+            headers=headers,
+            retryable=retryable,
+            finish=self._read_json,
+            json_body=json_body,
+            data=data,
+        )
+
+    async def _consume_response(self, response: aiohttp.ClientResponse) -> None:
+        await response.read()
+
     async def _request_empty(
         self,
         *,
@@ -248,56 +278,13 @@ class DropboxTransport:
         data: ContentBody,
         retryable: bool,
     ) -> None:
-        attempt = 1
-        auth_replayed = False
-        while True:
-            bearer = await self._acquire_bearer()
-            request_headers = self._authorization_headers(headers, bearer)
-
-            try:
-                async with self._session.post(
-                    url,
-                    headers=request_headers,
-                    data=data,
-                ) as response:
-                    if 200 <= response.status < 300:
-                        await response.read()
-                        return
-
-                    error = await self._build_error(response)
-            except asyncio.CancelledError:
-                raise
-            except (aiohttp.ClientError, TimeoutError) as exc:
-                if not retryable or attempt == self._retry_policy.max_attempts:
-                    raise DropboxTransportError(
-                        message=self._transport_message(exc)
-                    ) from exc
-
-                await asyncio.sleep(self._retry_policy.delay_for_attempt(attempt))
-                attempt += 1
-                continue
-
-            if await self._recover_expired_token(
-                error, bearer, already_replayed=auth_replayed
-            ):
-                auth_replayed = True
-                continue
-
-            if (
-                retryable
-                and self._retry_policy.should_retry_status(error.status_code or 0)
-                and attempt < self._retry_policy.max_attempts
-            ):
-                await asyncio.sleep(
-                    self._retry_policy.delay_for_attempt(
-                        attempt,
-                        retry_after=error.retry_after,
-                    )
-                )
-                attempt += 1
-                continue
-
-            raise error
+        await self._perform_request(
+            url=url,
+            headers=headers,
+            retryable=retryable,
+            finish=self._consume_response,
+            data=data,
+        )
 
     @asynccontextmanager
     async def _request_stream(
@@ -374,8 +361,6 @@ class DropboxTransport:
                 continue
 
             raise error
-
-        raise AssertionError("Retry loop exited unexpectedly.")
 
     async def _read_download_metadata(
         self,
@@ -463,7 +448,7 @@ class DropboxTransport:
             ),
             "error_tag": self._error_tag(error_value),
             "request_id": self._request_id(response),
-            "retry_after": self._parse_retry_after(response.headers.get("Retry-After")),
+            "retry_after": parse_retry_after(response.headers.get("Retry-After")),
             "response_body": body,
             "error_payload": payload,
         }
@@ -498,12 +483,10 @@ class DropboxTransport:
     def _authorization_headers(
         self, headers: Mapping[str, str], bearer: _BearerSnapshot
     ) -> dict[str, str]:
-        result = {
-            key: value
-            for key, value in headers.items()
-            if key.lower() != "authorization"
-        }
-        result["Authorization"] = f"Bearer {bearer.value}"
+        result = {"Authorization": f"Bearer {bearer.value}"}
+        for key, value in headers.items():
+            if key.lower() != "authorization":
+                result[key] = value
         return result
 
     @staticmethod
@@ -521,15 +504,6 @@ class DropboxTransport:
     @staticmethod
     def _request_id(response: aiohttp.ClientResponse) -> str | None:
         return response.headers.get("X-Dropbox-Request-Id")
-
-    @staticmethod
-    def _parse_retry_after(value: str | None) -> float | None:
-        if value is None:
-            return None
-        try:
-            return max(0.0, float(value))
-        except ValueError:
-            return None
 
     @staticmethod
     def _transport_message(exc: BaseException) -> str:

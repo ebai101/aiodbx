@@ -238,6 +238,19 @@ async def test_rpc_retries_server_error_then_succeeds(client_factory) -> None:
 
 
 @pytest.mark.asyncio
+async def test_static_request_keeps_authorization_header_first(client_factory) -> None:
+    async def handler(request: web.Request) -> web.Response:
+        names = [name.lower() for name, _ in request.raw_headers]
+        assert names.index(b"authorization") < names.index(b"content-type")
+        return web.json_response({"ok": True})
+
+    async with client_factory({"/2/test": handler}, content_host=False) as dbx:
+        result = await transport_for(dbx).rpc("/2/test", {})
+
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
 async def test_non_retryable_json_request_does_not_retry_server_error(
     client_factory,
 ) -> None:
