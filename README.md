@@ -7,9 +7,9 @@ This library is in very early development. The current release implements a smal
 ## Requirements
 
 - Python 3.11+
-- A Dropbox API access token
+- A Dropbox API access token, or an OAuth 2.0 app key, app secret, and refresh token
 
-An app token with narrow permissions and scoped access to an app folder is recommended while evaluating the library.
+An app token with narrow permissions and scoped access to an app folder is recommended while evaluating the library. For long-running or offline use, see [OAuth 2.0 with refresh tokens](#oauth-20-with-refresh-tokens).
 
 ## Quick start
 
@@ -73,6 +73,80 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## OAuth 2.0 with refresh tokens
+
+A generated access token expires after a few hours. For long-running or offline use, authorize the app once, store the returned refresh token, and let the client mint access tokens on demand.
+
+### One-time authorization
+
+Build the authorization URL, send the user to it, then exchange the code from the redirect for a refresh token.
+
+```python
+from __future__ import annotations
+
+import asyncio
+import os
+import secrets
+
+from aiodbx import oauth_authorization_url, oauth_exchange_code
+
+
+async def main():
+    state = secrets.token_urlsafe(32)
+    url = oauth_authorization_url(
+        os.environ["DROPBOX_APP_KEY"],
+        state=state,
+        redirect_uri="https://example.com/dropbox/callback",
+        scopes=("account_info.read", "files.content.write"),
+    )
+    print(f"Open this URL and approve the app: {url}")
+
+    # Dropbox redirects to your callback with ?code=...&state=...
+    # Verify the returned state before exchanging the code.
+    refresh_token = await oauth_exchange_code(
+        input("Paste the authorization code: ").strip(),
+        app_key=os.environ["DROPBOX_APP_KEY"],
+        app_secret=os.environ["DROPBOX_APP_SECRET"],
+        redirect_uri="https://example.com/dropbox/callback",
+    )
+    print(f"Store this refresh token: {refresh_token}")
+
+
+asyncio.run(main())
+```
+
+`oauth_authorization_url` always requests `token_access_type=offline`, so the exchange returns a refresh token. Pass a `code_verifier` to both calls to use PKCE S256. Omit it for a confidential app that can keep its app secret.
+
+### Using the refresh token
+
+Pass the app key, app secret, and refresh token as keywords. The client mints an access token on the first request and renews it before it expires.
+
+```python
+from __future__ import annotations
+
+import asyncio
+import os
+
+from aiodbx import AsyncDropbox
+
+
+async def main():
+    async with AsyncDropbox(
+        app_key=os.environ["DROPBOX_APP_KEY"],
+        app_secret=os.environ["DROPBOX_APP_SECRET"],
+        refresh_token=os.environ["DROPBOX_REFRESH_TOKEN"],
+    ) as dbx:
+        account = await dbx.users_get_current_account()
+        print(account["name"]["display_name"])
+
+
+asyncio.run(main())
+```
+
+Concurrent calls share one refresh. The client also refreshes and retries once when Dropbox rejects a request with `expired_access_token`. A fixed token still works. Pass `AsyncDropbox("sl...")` as before.
+
+If Dropbox no longer accepts the refresh token, the client raises `DropboxOAuthError`, a subclass of `DropboxAuthenticationError`. Catch it, run the authorization flow again, and store the new refresh token.
 
 ## Downloading files
 

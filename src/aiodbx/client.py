@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Self, overload
 
 import aiohttp
 
@@ -11,6 +11,12 @@ from .downloads import DownloadResponse
 from .files import DEFAULT_UPLOAD_CHUNK_SIZE, FilesNamespace, UploadPath
 from .filesystem import LocalPath
 from .hosts import EndpointHosts
+from .oauth import (
+    _Credential,
+    _credential_from_arguments,
+    _RefreshCredentials,
+    _StaticToken,
+)
 from .retry import RetryPolicy
 from .transport import DropboxTransport
 from .users import UsersNamespace
@@ -53,6 +59,7 @@ class AsyncDropbox:
     manager so its connection pool is reliably closed.
     """
 
+    @overload
     def __init__(
         self,
         access_token: str,
@@ -60,11 +67,37 @@ class AsyncDropbox:
         config: ClientConfig | None = None,
         retry_policy: RetryPolicy | None = None,
         _hosts: EndpointHosts | None = None,
-    ) -> None:
-        if not access_token:
-            raise ValueError("access_token must not be empty.")
+    ) -> None: ...
 
-        self._access_token = access_token
+    @overload
+    def __init__(
+        self,
+        *,
+        app_key: str,
+        app_secret: str,
+        refresh_token: str,
+        config: ClientConfig | None = None,
+        retry_policy: RetryPolicy | None = None,
+        _hosts: EndpointHosts | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        access_token: str | None = None,
+        *,
+        app_key: str | None = None,
+        app_secret: str | None = None,
+        refresh_token: str | None = None,
+        config: ClientConfig | None = None,
+        retry_policy: RetryPolicy | None = None,
+        _hosts: EndpointHosts | None = None,
+    ) -> None:
+        self._credential: _Credential = _credential_from_arguments(
+            access_token,
+            app_key=app_key,
+            app_secret=app_secret,
+            refresh_token=refresh_token,
+        )
         self._config = config or ClientConfig()
         self._retry_policy = retry_policy or RetryPolicy()
         self._hosts = _hosts or EndpointHosts()
@@ -96,7 +129,12 @@ class AsyncDropbox:
         )
         transport = DropboxTransport(
             session=session,
-            access_token=self._access_token,
+            access_token=self._credential.value
+            if isinstance(self._credential, _StaticToken)
+            else None,
+            _refresh_credentials=self._credential
+            if isinstance(self._credential, _RefreshCredentials)
+            else None,
             retry_policy=self._retry_policy,
             hosts=self._hosts,
         )
@@ -112,13 +150,18 @@ class AsyncDropbox:
         This method is idempotent. The client can be started again after it is
         closed.
         """
-        if self._session is not None:
-            await self._session.close()
-
-        self._session = None
+        transport = self._transport
         self._transport = None
         self._users = None
         self._files = None
+
+        try:
+            if transport is not None:
+                await transport.aclose()
+        finally:
+            if self._session is not None:
+                await self._session.close()
+            self._session = None
 
     async def __aenter__(self) -> Self:
         await self.start()
